@@ -1,0 +1,41 @@
+# 二进制
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+/tf-api
+/cmd/tf-api/tf-api
+
+# 配置（含密钥，绝不入库）
+configs/config.yaml
+configs/config.*.yaml
+!configs/config.example.yaml
+.env
+.env.*
+
+# 运行时产物
+logs/
+data/
+uploads/
+exports/
+*.log
+
+# 构建/缓存
+release/
+dist/
+node_modules/
+*.tar.gz
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# 大文件
+*.mp4
+*.zip

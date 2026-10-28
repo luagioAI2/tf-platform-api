@@ -1,0 +1,78 @@
+services:
+  tf-api:
+    build:
+      context: .
+      args:
+        VERSION: ${VERSION:-dev}
+    image: tf-api:${VERSION:-dev}
+    container_name: tf-api
+    ports:
+      - "8080:8080"
+    environment:
+      TZ: Asia/Shanghai
+      TF_ENV: development
+      TF_LISTEN: 0.0.0.0:8080
+      TF_DB_DSN: "root:root@tcp(mysql:3306)/tf_platform?charset=utf8mb4&parseTime=True&loc=Local"
+      TF_REDIS_ADDR: "redis:6379"
+      TF_REDIS_PASSWORD: ""
+      TF_JWT_KEY: "dev-jwt-key-change-me-please-32"
+      TF_ADMIN_KEY: "dev-admin-key-change-me-32"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [tf-net]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  mysql:
+    image: mysql:8.0
+    container_name: tf-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: tf_platform
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+08:00
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks: [tf-net]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: tf-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks: [tf-net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  mysql_data:
+  redis_data:
+
+networks:
+  tf-net:
+    driver: bridge

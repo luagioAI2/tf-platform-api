@@ -1,0 +1,85 @@
+definitions:
+  tf-api_internal_app_ginx.Resp:
+    properties:
+      code:
+        description: 业务错误码，200 = 成功
+        type: integer
+      data: {}
+      error:
+        description: 为空时该字段不出现
+        type: string
+    type: object
+  tf-api_internal_app_service.HealthStatus:
+    properties:
+      checks:
+        additionalProperties:
+          type: string
+        type: object
+      database:
+        additionalProperties: true
+        type: object
+      env:
+        type: string
+      status:
+        description: ok | degraded
+        type: string
+      uptime:
+        type: string
+      version:
+        type: string
+    type: object
+info:
+  contact: {}
+  description: tf-api 服务端接口
+  title: tf-api
+  version: 1.0.0
+paths:
+  /api/ping:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/tf-api_internal_app_ginx.Resp'
+            - properties:
+                data:
+                  type: string
+              type: object
+      summary: Ping
+      tags:
+      - System
+  /api/system/info:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/tf-api_internal_app_ginx.Resp'
+      security:
+      - ApiKeyAuth: []
+      summary: 运行时信息
+      tags:
+      - System
+  /health:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/tf-api_internal_app_service.HealthStatus'
+      summary: 健康检查
+      tags:
+      - System
+securityDefinitions:
+  ApiKeyAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

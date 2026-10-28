@@ -1,0 +1,161 @@
+# tf-api 配置示例
+#
+# 使用方式：
+#   cp configs/config.example.yaml configs/config.yaml
+#   按需修改后：make run
+#
+# 安全约定：
+#   1. 本文件可以入库，但**只能留占位值**，禁止写入真实密钥。
+#   2. 真实密钥通过环境变量注入（见文件末尾「环境变量覆盖」）。
+#   3. configs/config.yaml 已被 .gitignore 忽略。
+
+ServiceSettings:
+  NodeID: 'node1'
+  ListenAddress: 0.0.0.0:8080
+  StaticPath: './public'
+  Timezone: 'Asia/Shanghai'
+  Environment: 'development' # development | test | production
+  Language: 'en' # 默认语言：en / es / zh
+  Area: 'cn'
+  CountryCode: '86'
+  StorageHost: ''
+  TrustedUserCode: ''
+
+  # ===== JWT（C 端）=====
+  # 生产环境用 TF_JWT_KEY 覆盖；至少 16 字符，建议 32+
+  JwtSignKey: 'change-me-please-32-chars-min'
+  TokenExpireHours: 2 # access token 有效期（小时）
+  TokenRefreshHours: 168 # refresh token 有效期（小时，7 天）
+
+  # ===== 后台令牌 =====
+  # 生产环境用 TF_ADMIN_KEY 覆盖；必须与 JwtSignKey 不同
+  AdminSignKey: 'change-me-admin-32-chars-min'
+  AdminTokenExpireHours: 24
+
+  # ===== 开关 =====
+  EnablePprof: true # 生产建议 false
+  EnableSwagger: true # 生产建议 false
+  EnableMQ: true # 需要 Redis
+  EnableTask: true # 多副本部署时只开一个实例（或使用 cmd/worker）
+  EnableTrace: true
+  EnableCaptcha: false
+  EnableMetrics: true # Prometheus /metrics
+
+  # ===== 性能与保护（5W 并发关键）=====
+  MaxBodyBytes: 4194304 # 单请求体上限 4MB
+  RequestTimeoutSeconds: 20 # 单请求处理超时，超时返回 504
+  # 可信代理：部署在 Nginx/SLB 后**必须**配置（生产环境启动校验强制）
+  # 不配置时 gin 不信任任何 X-Forwarded-For，所有请求 IP 都会是代理 IP
+  TrustedProxies:
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+  ReadHeaderTimeoutSeconds: 5 # 防慢速攻击
+  ReadTimeoutSeconds: 30
+  WriteTimeoutSeconds: 60
+  IdleTimeoutSeconds: 90
+  MaxHeaderBytes: 1048576 # 1MB
+  ShutdownTimeoutSeconds: 15 # 优雅关闭等待
+
+  RateLimit:
+    Enable: true
+    GlobalLimit: 600 # 单 IP 每分钟 600 次
+    GlobalWindowSeconds: 60
+
+CaptchaSettings:
+  KeyLong: 6
+  ImgWidth: 240
+  ImgHeight: 80
+  OpenCaptcha: false
+  OpenCaptchaTimeout: 3600
+
+DBSettings:
+  Driver: 'mysql' # mysql | sqlite（sqlite 仅本地开发）
+  # 生产环境用 TF_DB_DSN 覆盖
+  DataSource: 'root:root@tcp(127.0.0.1:3306)/tf_platform?charset=utf8mb4&parseTime=True&loc=Local'
+  DataSourceReplicas: [] # 额外写库
+  DataSourceSearchReplicas: [] # 读库
+  MaxIdleConns: 20
+  MaxOpenConns: 100
+  ConnMaxLifetimeSeconds: 3600
+  QueryTimeout: 30
+  EnableAutoMigrate: false # 仅开发/测试开启；生产用 migrations/
+  Trace: false
+  LogLevel: 'warn' # silent | error | warn | info
+
+RDBSettings:
+  DataSource: '127.0.0.1:6379'
+  Password: ''
+  DB: 0
+  PoolSize: 20
+  MinIdleConns: 5
+  PoolTimeout: 5
+
+CorsSettings:
+  # 生产环境务必改成真实域名；用 TF_CORS_ORIGINS 覆盖（逗号分隔）
+  AllowOrigins:
+    - 'http://localhost:3000'
+    - 'http://127.0.0.1:3000'
+  AllowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+  AllowHeaders: ['Origin', 'Content-Type', 'Accept', 'Authorization', 'X-Api-Token', 'Accept-Language', 'X-Request-ID']
+  ExposeHeaders: ['X-Request-ID', 'X-Access-Token', 'X-Refresh-Token']
+  AllowCredentials: true
+  MaxAge: 43200
+
+UploadSettings:
+  Type: 'local' # local | minio | aws-s3 | cloudflare-r2
+  MaxFileSize: 5242880 # 5MB
+  AllowedExtensions: ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt', '.csv', '.zip']
+  Local:
+    StorePath: './uploads'
+    BaseURL: 'http://localhost:8080/public/uploads'
+  Minio:
+    Endpoint: ''
+    AccessKey: ''
+    SecretKey: ''
+    BucketName: ''
+    UseSSL: false
+    BaseURL: ''
+    BasePath: 'uploads'
+  AwsS3:
+    Region: 'us-east-1'
+    Endpoint: ''
+    Bucket: ''
+    AccessKey: ''
+    SecretKey: ''
+    BaseURL: ''
+    PathPrefix: 'uploads'
+    S3ForcePathStyle: false
+    DisableSSL: false
+  CloudflareR2:
+    AccountID: ''
+    AccessKeyID: ''
+    SecretAccessKey: ''
+    Bucket: ''
+    BaseURL: ''
+    PathPrefix: 'uploads'
+
+WechatSetting:
+  # 微信小程序 AppID / AppSecret
+  # 生产环境用环境变量 TF_WECHAT_APPID / TF_WECHAT_SECRET 覆盖
+  # 留空时：开发环境返回 mock session（便于联调），生产环境直接报错
+  AppID: ''
+  AppSecret: ''
+  Code2SessionURL: 'https://api.weixin.qq.com/sns/jscode2session'
+  MchID: ''
+  APIKey: ''
+
+# ============================================================
+# 环境变量覆盖（优先级高于本文件）
+# ============================================================
+# TF_ENV              环境：development / test / production
+# TF_LISTEN           监听地址，如 0.0.0.0:8080
+# TF_DB_DSN           MySQL DSN
+# TF_REDIS_ADDR       Redis 地址 host:port
+# TF_REDIS_PASSWORD   Redis 密码
+# TF_JWT_KEY          C 端 JWT 签名密钥
+# TF_ADMIN_KEY        后台令牌签名密钥（必须与 TF_JWT_KEY 不同）
+# TF_CORS_ORIGINS     CORS 白名单，逗号分隔
+# TF_TRUSTED_PROXIES  可信代理网段，逗号分隔（生产必填）
+# TF_METRICS          是否开启 /metrics（1/0）
+# TF_RATE_LIMIT       是否开启限流（1/0）
+# TF_RATE_LIMIT_GLOBAL 单 IP 限额（次/窗口）

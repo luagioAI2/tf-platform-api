@@ -1,0 +1,69 @@
+# Traducciones al español
+# Convención: la clave debe coincidir con el value de ErrCodeMsg en internal/app/errors/code.go
+
+# ===== General =====
+success: "Operación exitosa"
+basic-error: "Error del sistema"
+server-error: "Error del servidor, inténtelo más tarde"
+
+service-not-found: "Servicio no encontrado"
+resource-not-exist: "El recurso no existe"
+verification-failed: "Verificación fallida"
+insufficient-permissions: "Permisos insuficientes"
+user-not-logged-in: "Inicie sesión primero"
+invalid-parameters: "Parámetros inválidos"
+too-many-requests: "Demasiadas solicitudes, inténtelo más tarde"
+operation-failed: "Operación fallida"
+duplicate-operation: "Esta operación ya se realizó"
+status-not-allowed: "El estado actual no permite esta operación"
+request-timeout: "Tiempo de espera agotado, inténtelo de nuevo"
+service-unavailable: "Servicio temporalmente no disponible, inténtelo más tarde"
+
+# ===== Usuario =====
+user-not-exist: "El usuario no existe"
+user-already-exist: "El usuario ya existe"
+mobile-already-registered: "Este número de móvil ya está registrado"
+invalid-password: "Contraseña incorrecta"
+password-not-match: "Las contraseñas no coinciden"
+password-not-set: "La contraseña no ha sido establecida"
+account-disabled: "Esta cuenta ha sido deshabilitada"
+token-invalid: "Token inválido"
+token-expired: "La sesión ha expirado, inicie sesión de nuevo"
+verify-code-invalid: "Código de verificación incorrecto"
+verify-code-expired: "El código de verificación ha expirado"
+verify-code-too-many-attempts: "Demasiados intentos incorrectos, solicite un nuevo código"
+sms-send-too-often: "Código enviado con demasiada frecuencia, inténtelo más tarde"
+sms-send-failed: "Error al enviar el código, inténtelo más tarde"
+mobile-not-bound: "Vincule primero un número de móvil"
+wechat-auth-failed: "La autorización de WeChat falló, inténtelo de nuevo"
+wechat-already-bound: "Esta cuenta de WeChat ya está vinculada a otro usuario"
+account-not-bind-wechat: "Esta cuenta no está vinculada a WeChat"
+
+# ===== Cartera =====
+order-not-exist: "El pedido no existe"
+order-status-not-allowed: "El estado del pedido no permite esta operación"
+order-already-closed: "El pedido ya está cerrado"
+insufficient-balance: "Saldo insuficiente"
+amount-not-allowed: "Importe inválido"
+wallet-not-exist: "La cartera no existe"
+currency-not-supported: "Moneda no soportada"
+balance-conflict: "Conflicto al actualizar el saldo, inténtelo de nuevo"
+duplicate-ledger-entry: "Este registro ya existe"
+
+# ===== Juego =====
+game-not-exist: "El juego no existe"
+game-offline: "El juego no está disponible"
+game-already-owned: "Ya tienes este juego"
+game-not-owned: "Aún no tienes este juego"
+game-not-purchasable: "Este juego no está disponible para compra"
+
+# ===== Archivo =====
+file-not-allowed: "Tipo de archivo no permitido"
+file-too-large: "El archivo es demasiado grande"
+file-upload-failed: "Error al subir el archivo"
+file-storage-not-init: "El almacenamiento de archivos no está inicializado"
+
+# ===== Administración =====
+admin-token-required: "Se requiere token de administrador"
+admin-token-invalid: "Token de administrador inválido"
+admin-token-expired: "El token de administrador ha expirado"

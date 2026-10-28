@@ -1,0 +1,44 @@
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    - govet
+    - errcheck
+    - staticcheck
+    - unused
+    - ineffassign
+    - gofmt
+    - goimports
+    - misspell
+    - revive
+    - bodyclose
+    - rowserrcheck
+    - sqlclosecheck
+    - contextcheck
+    - nilerr
+    - errorlint
+    - gosec
+
+linters-settings:
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment
+  revive:
+    rules:
+      - name: exported
+        disabled: true # 中文注释项目，不强求出现在导出符号上
+  gosec:
+    excludes:
+      - G404 # 非加密随机数（业务随机可接受）
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters: [gosec, errcheck, bodyclose]
+    - path: internal/app/swagger/
+      linters: [all]
+  max-issues-per-linter: 0
+  max-same-issues: 0

@@ -1,0 +1,37 @@
+package repository
+
+import (
+	"tf-api/internal/app/entities"
+
+	"gorm.io/gorm"
+)
+
+// Models 返回需要 AutoMigrate 的模型列表。
+// 生产环境请关闭 EnableAutoMigrate，改用 migrations/ 下的版本化 SQL。
+func Models() []interface{} {
+	return []interface{}{
+		// 用户与认证
+		new(entities.User),
+		new(entities.UserOAuth),
+		new(entities.UserToken),
+		new(entities.SmsCode),
+
+		// 钱包与账本
+		new(entities.Wallet),
+		new(entities.LedgerEntry),
+
+		// 游戏与购买
+		new(entities.Game),
+		new(entities.UserGame),
+		new(entities.GameOrder),
+	}
+}
+
+// AutoMigrate 执行建表/改表（仅开发与测试环境使用）
+func AutoMigrate(db *gorm.DB) error {
+	models := Models()
+	if len(models) == 0 {
+		return nil
+	}
+	return db.AutoMigrate(models...)
+}

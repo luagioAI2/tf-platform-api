@@ -1,0 +1,69 @@
+# English translations
+# 约定：key 必须与 internal/app/errors/code.go 中 ErrCodeMsg 的 value 完全一致
+
+# ===== 通用 =====
+success: "Operation successful"
+basic-error: "System error"
+server-error: "Server error, please try again later"
+
+service-not-found: "Service not found"
+resource-not-exist: "Resource does not exist"
+verification-failed: "Verification failed"
+insufficient-permissions: "Insufficient permissions"
+user-not-logged-in: "Please log in first"
+invalid-parameters: "Invalid parameters"
+too-many-requests: "Too many requests, please try again later"
+operation-failed: "Operation failed"
+duplicate-operation: "This operation has already been performed"
+status-not-allowed: "The current status does not allow this operation"
+request-timeout: "Request timeout, please try again"
+service-unavailable: "Service temporarily unavailable, please try again later"
+
+# ===== 用户域 =====
+user-not-exist: "User does not exist"
+user-already-exist: "User already exists"
+mobile-already-registered: "This mobile number is already registered"
+invalid-password: "Incorrect password"
+password-not-match: "The two passwords do not match"
+password-not-set: "Password has not been set"
+account-disabled: "This account has been disabled"
+token-invalid: "Invalid token"
+token-expired: "Session expired, please log in again"
+verify-code-invalid: "Verification code is incorrect"
+verify-code-expired: "Verification code has expired"
+verify-code-too-many-attempts: "Too many incorrect attempts, please request a new code"
+sms-send-too-often: "Code sent too frequently, please try again later"
+sms-send-failed: "Failed to send code, please try again later"
+mobile-not-bound: "Please bind a mobile number first"
+wechat-auth-failed: "WeChat authorization failed, please try again"
+wechat-already-bound: "This WeChat account is already bound to another user"
+account-not-bind-wechat: "This account is not bound to WeChat"
+
+# ===== 钱包域 =====
+order-not-exist: "Order does not exist"
+order-status-not-allowed: "Order status does not allow this operation"
+order-already-closed: "Order is already closed"
+insufficient-balance: "Insufficient balance"
+amount-not-allowed: "Invalid amount"
+wallet-not-exist: "Wallet does not exist"
+currency-not-supported: "Unsupported currency"
+balance-conflict: "Balance update conflict, please retry"
+duplicate-ledger-entry: "This ledger entry already exists"
+
+# ===== 游戏域 =====
+game-not-exist: "Game does not exist"
+game-offline: "Game is offline"
+game-already-owned: "You already own this game"
+game-not-owned: "You do not own this game yet"
+game-not-purchasable: "This game is not available for purchase"
+
+# ===== 文件域 =====
+file-not-allowed: "File type is not allowed"
+file-too-large: "File is too large"
+file-upload-failed: "File upload failed"
+file-storage-not-init: "File storage is not initialized"
+
+# ===== 后台/运维域 =====
+admin-token-required: "Admin token is required"
+admin-token-invalid: "Admin token is invalid"
+admin-token-expired: "Admin token has expired"
