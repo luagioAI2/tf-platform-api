@@ -67,3 +67,18 @@ file-storage-not-init: "文件存储未初始化"
 admin-token-required: "缺少后台令牌"
 admin-token-invalid: "后台令牌无效"
 admin-token-expired: "后台令牌已过期"
+
+# ===== 游戏存储 =====
+game-kv-too-large: "存档过大，无法保存"
+game-kv-version-conflict: "存档已在其他设备更新，请刷新后重试"
+game-kv-key-reserved: "该键由系统保留，不可写入"
+game-coin-insufficient: "游戏币不足"
+
+# ===== 任务系统 =====
+task-not-exist: "任务不存在"
+task-instance-not-exist: "任务记录不存在"
+task-status-not-allowed: "当前任务状态不允许该操作"
+task-already-checked-in: "今天已经签到过了"
+task-not-check-in-task: "该任务不是签到任务"
+task-timer-not-started: "计时还没开始"
+task-review-pending: "该任务正在等待审核"

@@ -22,6 +22,11 @@ const (
 	OrderCreatedEvent EventType = "order_created"
 	// OrderStatusChangedEvent 订单状态变更
 	OrderStatusChangedEvent EventType = "order_status_changed"
+
+	// TaskCompletedEvent 任务完成（审核通过）
+	TaskCompletedEvent EventType = "task_completed"
+	// TaskCheckedInEvent 签到成功
+	TaskCheckedInEvent EventType = "task_checked_in"
 )
 
 // EventHandler 事件处理函数

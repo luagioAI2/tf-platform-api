@@ -24,6 +24,17 @@ func Models() []interface{} {
 		new(entities.Game),
 		new(entities.UserGame),
 		new(entities.GameOrder),
+
+		// 游戏通用存储（存档 KV + 游戏币）
+		new(entities.GameKv),
+		new(entities.GameCoinLedger),
+		new(entities.GameWallet),
+
+		// 任务系统
+		new(entities.Task),
+		new(entities.TaskInstance),
+		new(entities.CheckInRecord),
+		new(entities.CheckInProgress),
 	}
 }
 

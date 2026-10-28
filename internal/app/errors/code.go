@@ -66,11 +66,26 @@ const (
 
 // ============================ 游戏域 10 04 xx xx ============================
 const (
-	GameNotExist       = 10040101 // 游戏不存在
-	GameOffline        = 10040201 // 游戏已下架
-	GameAlreadyOwned   = 10040301 // 已拥有该游戏
-	GameNotOwned       = 10040401 // 未拥有该游戏
-	GameNotPurchasable = 10040501 // 该游戏不可购买
+	GameNotExist          = 10040101 // 游戏不存在
+	GameOffline           = 10040201 // 游戏已下架
+	GameAlreadyOwned      = 10040301 // 已拥有该游戏
+	GameNotOwned          = 10040401 // 未拥有该游戏
+	GameNotPurchasable    = 10040501 // 该游戏不可购买
+	GameKvTooLarge        = 10040601 // 存档过大
+	GameKvVersionConflict = 10040701 // 存档版本冲突（多设备）
+	GameKvKeyReserved     = 10040801 // 保留键不可写
+	GameCoinInsufficient  = 10040901 // 游戏币不足
+)
+
+// ============================ 任务域 10 05 xx xx ============================
+const (
+	TaskNotExist         = 10050101 // 任务不存在
+	TaskInstanceNotExist = 10050201 // 任务实例不存在
+	TaskStatusNotAllowed = 10050301 // 任务状态不允许该操作
+	TaskAlreadyCheckedIn = 10050401 // 今日已签到
+	TaskNotCheckInTask   = 10050501 // 该任务不是签到任务
+	TaskTimerNotStarted  = 10050601 // 计时尚未开始
+	TaskReviewPending    = 10050701 // 该任务正在等待审核
 )
 
 // ============================ 文件域 10 03 xx xx ============================
@@ -138,11 +153,23 @@ var ErrCodeMsg = map[int]string{
 	BalanceConflict:       "balance-conflict",
 	DuplicateLedgerEntry:  "duplicate-ledger-entry",
 
-	GameNotExist:       "game-not-exist",
-	GameOffline:        "game-offline",
-	GameAlreadyOwned:   "game-already-owned",
-	GameNotOwned:       "game-not-owned",
-	GameNotPurchasable: "game-not-purchasable",
+	GameNotExist:          "game-not-exist",
+	GameOffline:           "game-offline",
+	GameAlreadyOwned:      "game-already-owned",
+	GameNotOwned:          "game-not-owned",
+	GameNotPurchasable:    "game-not-purchasable",
+	GameKvTooLarge:        "game-kv-too-large",
+	GameKvVersionConflict: "game-kv-version-conflict",
+	GameKvKeyReserved:     "game-kv-key-reserved",
+	GameCoinInsufficient:  "game-coin-insufficient",
+
+	TaskNotExist:         "task-not-exist",
+	TaskInstanceNotExist: "task-instance-not-exist",
+	TaskStatusNotAllowed: "task-status-not-allowed",
+	TaskAlreadyCheckedIn: "task-already-checked-in",
+	TaskNotCheckInTask:   "task-not-check-in-task",
+	TaskTimerNotStarted:  "task-timer-not-started",
+	TaskReviewPending:    "task-review-pending",
 
 	FileNotAllowed:     "file-not-allowed",
 	FileTooLarge:       "file-too-large",

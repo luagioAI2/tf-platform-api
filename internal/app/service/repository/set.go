@@ -21,4 +21,12 @@ var RepoSet = wire.NewSet(
 
 	// 游戏与购买
 	GameRepositorySet,
+
+	// 游戏通用存储（存档 KV + 游戏币）
+	GameKvRepositorySet,
+	GameCoinRepositorySet,
+
+	// 任务系统
+	TaskRepositorySet,
+	CheckInRepositorySet,
 )

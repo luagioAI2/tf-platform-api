@@ -22,6 +22,10 @@ var SrvSet = wire.NewSet(
 	WechatServiceSet,
 	AuthServiceSet,
 	GameServiceSet,
+	GameStorageServiceSet,
+	GameCoinServiceSet,
+	TaskServiceSet,
+	CheckInServiceSet,
 
 	// 异步门面（必须最后，它依赖上面多个 Service）
 	AsyncServiceManagerSet,

@@ -73,18 +73,47 @@ func BuildInjector(info buildinfo.Info) (*Injector, func(), error) {
 	gameAPI := &api.GameAPI{
 		Srv: gameService,
 	}
+	gameKvRepository := &repository.GameKvRepository{
+		DB: db,
+	}
+	gameStorageService := service.ProvideGameStorageService(gameKvRepository, gameRepository)
+	gameStorageAPI := &api.GameStorageAPI{
+		Srv: gameStorageService,
+	}
+	gameCoinRepository := &repository.GameCoinRepository{
+		DB: db,
+	}
+	gameCoinService := service.ProvideGameCoinService(gameCoinRepository, gameRepository, walletService, db)
+	gameCoinAPI := &api.GameCoinAPI{
+		Srv: gameCoinService,
+	}
+	taskRepository := &repository.TaskRepository{
+		DB: db,
+	}
+	checkInRepository := &repository.CheckInRepository{
+		DB: db,
+	}
+	eventService := service.ProvideEventService()
+	taskService := service.ProvideTaskService(taskRepository, checkInRepository, walletService, eventService)
+	checkInService := service.ProvideCheckInService(taskRepository, checkInRepository, walletService, eventService)
+	taskAPI := &api.TaskAPI{
+		Srv:      taskService,
+		CheckSrv: checkInService,
+	}
 	rateLimiter := provideRateLimiter(client)
 	routerRouter := &router.Router{
-		SystemAPI: systemAPI,
-		AuthAPI:   authAPI,
-		UserAPI:   userAPI,
-		WalletAPI: walletAPI,
-		GameAPI:   gameAPI,
-		RDS:       client,
-		Limiter:   rateLimiter,
+		SystemAPI:      systemAPI,
+		AuthAPI:        authAPI,
+		UserAPI:        userAPI,
+		WalletAPI:      walletAPI,
+		GameAPI:        gameAPI,
+		GameStorageAPI: gameStorageAPI,
+		GameCoinAPI:    gameCoinAPI,
+		TaskAPI:        taskAPI,
+		RDS:            client,
+		Limiter:        rateLimiter,
 	}
 	engine := InitGinEngine(routerRouter, info)
-	eventService := service.ProvideEventService()
 	asyncServiceManager := &service.AsyncServiceManager{
 		SystemSrv: systemService,
 		EventSrv:  eventService,

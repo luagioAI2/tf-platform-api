@@ -50,6 +50,46 @@ func (a *JSONStringArray) Scan(src interface{}) error {
 	return nil
 }
 
+// JSONIntArray 存整数数组的列（如签到已领取的阶梯阈值）
+type JSONIntArray []int
+
+func (a JSONIntArray) Value() (driver.Value, error) {
+	if a == nil {
+		return "[]", nil
+	}
+	b, err := json.Marshal([]int(a))
+	if err != nil {
+		return nil, fmt.Errorf("marshal JSONIntArray: %w", err)
+	}
+	return string(b), nil
+}
+
+func (a *JSONIntArray) Scan(src interface{}) error {
+	if src == nil {
+		*a = JSONIntArray{}
+		return nil
+	}
+	var b []byte
+	switch v := src.(type) {
+	case []byte:
+		b = v
+	case string:
+		b = []byte(v)
+	default:
+		return fmt.Errorf("JSONIntArray: unsupported type %T", src)
+	}
+	if len(b) == 0 {
+		*a = JSONIntArray{}
+		return nil
+	}
+	var out []int
+	if err := json.Unmarshal(b, &out); err != nil {
+		return fmt.Errorf("unmarshal JSONIntArray: %w", err)
+	}
+	*a = JSONIntArray(out)
+	return nil
+}
+
 // Shot 游戏截图
 type Shot struct {
 	Src     string `json:"src"`

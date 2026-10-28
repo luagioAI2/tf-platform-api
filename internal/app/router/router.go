@@ -31,11 +31,14 @@ type IRouter interface {
 // Router 路由注册入口。
 // 按业务域拆分文件：router_auth.go / router_game.go / router_user.go ...
 type Router struct {
-	SystemAPI *api.SystemAPI
-	AuthAPI   *api.AuthAPI
-	UserAPI   *api.UserAPI
-	WalletAPI *api.WalletAPI
-	GameAPI   *api.GameAPI
+	SystemAPI      *api.SystemAPI
+	AuthAPI        *api.AuthAPI
+	UserAPI        *api.UserAPI
+	WalletAPI      *api.WalletAPI
+	GameAPI        *api.GameAPI
+	GameStorageAPI *api.GameStorageAPI
+	GameCoinAPI    *api.GameCoinAPI
+	TaskAPI        *api.TaskAPI
 
 	// RDS 供中间件做黑名单/限流（可为 nil，表示降级运行）
 	RDS *redis.Client
@@ -150,6 +153,58 @@ func (a *Router) registerAPI(app *gin.Engine) {
 		// 购买/我的游戏：必须登录
 		gameGroup.POST("/purchase", middleware.JWTMiddleware(a.RDS), a.GameAPI.Purchase)
 		gameGroup.POST("/my-games", middleware.JWTMiddleware(a.RDS), a.GameAPI.MyGames)
+	}
+
+	// ---- 游戏存档（通用 KV，需登录）----
+	kvGroup := r.Group("/game/kv").Use(middleware.JWTMiddleware(a.RDS))
+	{
+		kvGroup.POST("/get", a.GameStorageAPI.Get)
+		kvGroup.POST("/set", a.GameStorageAPI.Set)
+		kvGroup.POST("/list", a.GameStorageAPI.List)
+		kvGroup.POST("/delete", a.GameStorageAPI.Delete)
+		kvGroup.POST("/usage", a.GameStorageAPI.Usage)
+	}
+
+	// ---- 游戏币（需登录）----
+	coinGroup := r.Group("/game/coin").Use(middleware.JWTMiddleware(a.RDS))
+	{
+		coinGroup.POST("/info", a.GameCoinAPI.Info)
+		coinGroup.POST("/list", a.GameCoinAPI.ListInfo)
+		coinGroup.POST("/buy", a.GameCoinAPI.Buy)
+		coinGroup.POST("/spend", a.GameCoinAPI.Spend)
+		coinGroup.POST("/mint", a.GameCoinAPI.Mint)
+		coinGroup.POST("/redeem", a.GameCoinAPI.Redeem)
+		coinGroup.POST("/ledger", a.GameCoinAPI.Ledger)
+	}
+
+	// ---- 任务系统（需登录）----
+	taskGroup := r.Group("/task").Use(middleware.JWTMiddleware(a.RDS))
+	{
+		// 任务定义
+		taskGroup.POST("/create", a.TaskAPI.CreateTask)
+		taskGroup.POST("/update", a.TaskAPI.UpdateTask)
+		taskGroup.POST("/delete", a.TaskAPI.DeleteTask)
+		taskGroup.POST("/list", a.TaskAPI.ListTasks)
+
+		// 任务板与实例
+		taskGroup.POST("/board", a.TaskAPI.Board)
+		taskGroup.POST("/instances", a.TaskAPI.Instances)
+
+		// 计时
+		taskGroup.POST("/start-timer", a.TaskAPI.StartTimer)
+		taskGroup.POST("/pause-timer", a.TaskAPI.PauseTimer)
+		taskGroup.POST("/resume-timer", a.TaskAPI.ResumeTimer)
+
+		// 提交与审核
+		taskGroup.POST("/submit", a.TaskAPI.Submit)
+		taskGroup.POST("/review", a.TaskAPI.Review)
+		taskGroup.POST("/skip", a.TaskAPI.Skip)
+		taskGroup.POST("/pending-review", a.TaskAPI.PendingReview)
+		taskGroup.POST("/stats", a.TaskAPI.Stats)
+
+		// 签到
+		taskGroup.POST("/check-in", a.TaskAPI.CheckIn)
+		taskGroup.POST("/check-in-status", a.TaskAPI.CheckInStatus)
 	}
 
 	// ---- 系统（需登录）----

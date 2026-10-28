@@ -67,3 +67,18 @@ file-storage-not-init: "File storage is not initialized"
 admin-token-required: "Admin token is required"
 admin-token-invalid: "Admin token is invalid"
 admin-token-expired: "Admin token has expired"
+
+# ===== Game storage =====
+game-kv-too-large: "Save data too large"
+game-kv-version-conflict: "Save data was updated on another device, please refresh"
+game-kv-key-reserved: "This key is reserved by the system"
+game-coin-insufficient: "Insufficient game coins"
+
+# ===== Task system =====
+task-not-exist: "Task does not exist"
+task-instance-not-exist: "Task record does not exist"
+task-status-not-allowed: "Current task status does not allow this operation"
+task-already-checked-in: "Already checked in today"
+task-not-check-in-task: "This task is not a check-in task"
+task-timer-not-started: "Timer has not started"
+task-review-pending: "This task is pending review"

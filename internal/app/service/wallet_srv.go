@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/wire"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 var WalletServiceSet = wire.NewSet(ProvideWalletService)
@@ -95,6 +96,22 @@ func (s *WalletService) Balance(ctx context.Context, uid uint, currency entities
 // 所有发币/扣币都必须走这里，不要直接操作 Repository。
 func (s *WalletService) Change(ctx context.Context, c repository.BalanceChange) (int64, *entities.LedgerEntry, error) {
 	balance, entry, err := s.Repo.ApplyChange(ctx, c)
+	switch {
+	case errors.Is(err, repository.ErrInsufficientBalance):
+		return balance, entry, apperrors.WithCode(apperrors.InsufficientBalance)
+	case errors.Is(err, repository.ErrDuplicateLedger):
+		return balance, entry, apperrors.WithCode(apperrors.DuplicateLedgerEntry)
+	case err != nil:
+		return balance, entry, apperrors.WithError(err)
+	}
+	return balance, entry, nil
+}
+
+// ChangeWithTx 在给定事务内变更余额（供跨表事务使用）。
+//
+// 用于「扣积分 + 记游戏币」这类必须原子完成的场景。
+func (s *WalletService) ChangeWithTx(ctx context.Context, tx *gorm.DB, c repository.BalanceChange) (int64, *entities.LedgerEntry, error) {
+	balance, entry, err := s.Repo.ApplyChangeWithTx(ctx, tx, c)
 	switch {
 	case errors.Is(err, repository.ErrInsufficientBalance):
 		return balance, entry, apperrors.WithCode(apperrors.InsufficientBalance)

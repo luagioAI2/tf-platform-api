@@ -127,6 +127,7 @@ const (
 	SourceSeedPurchase   = "seed_purchase"   // 买种子
 	SourceAnimalPurchase = "animal_purchase" // 买动物
 	SourceGamePurchase   = "game_purchase"   // 买游戏（用钻石）
+	SourceGameSpend      = "game_spend"      // 游戏内消费（买游戏币等）
 	SourceRedeem         = "redeem"          // 兑换商城消费
 	SourceRedeemPoints   = "redeem_points"   // 兑换时用积分补差
 	SourceRedeemCoupon   = "redeem_coupon"   // 兑换时用兑换券支付

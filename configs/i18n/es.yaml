@@ -67,3 +67,18 @@ file-storage-not-init: "El almacenamiento de archivos no está inicializado"
 admin-token-required: "Se requiere token de administrador"
 admin-token-invalid: "Token de administrador inválido"
 admin-token-expired: "El token de administrador ha expirado"
+
+# ===== Almacenamiento de juego =====
+game-kv-too-large: "Los datos guardados son demasiado grandes"
+game-kv-version-conflict: "Los datos se actualizaron en otro dispositivo, actualice"
+game-kv-key-reserved: "Esta clave está reservada por el sistema"
+game-coin-insufficient: "Monedas de juego insuficientes"
+
+# ===== Sistema de tareas =====
+task-not-exist: "La tarea no existe"
+task-instance-not-exist: "El registro de la tarea no existe"
+task-status-not-allowed: "El estado actual de la tarea no permite esta operación"
+task-already-checked-in: "Ya has registrado la entrada hoy"
+task-not-check-in-task: "Esta tarea no es de registro diario"
+task-timer-not-started: "El temporizador no ha comenzado"
+task-review-pending: "Esta tarea está pendiente de revisión"
