@@ -30,6 +30,10 @@ func Models() []interface{} {
 		new(entities.GameCoinLedger),
 		new(entities.GameWallet),
 
+		// 存档快照与回档
+		new(entities.GameKvSnapshot),
+		new(entities.GameKvRestoreLog),
+
 		// 任务系统
 		new(entities.Task),
 		new(entities.TaskInstance),

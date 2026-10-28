@@ -31,8 +31,18 @@ func NewGameKvRepository(db *gorm.DB) *GameKvRepository {
 
 // Get 读取单个键
 func (r *GameKvRepository) Get(ctx context.Context, uid uint, gameID, key string) (*entities.GameKv, error) {
+	return r.GetWithTx(ctx, r.DB, uid, gameID, key)
+}
+
+// GetWithTx 在给定事务内读取。
+//
+// ⚠️ 事务内**必须**用这个方法，不能用 Get。
+// 原因：`r.DB` 是外层句柄，在事务里用它会让 database/sql 去连接池
+// 申请**第二条连接**（第一条已被事务占用）。连接池打满时直接死锁 ——
+// 实测：回档逻辑里误用外层句柄，测试挂死 600 秒。
+func (r *GameKvRepository) GetWithTx(ctx context.Context, tx *gorm.DB, uid uint, gameID, key string) (*entities.GameKv, error) {
 	var kv entities.GameKv
-	err := r.DB.WithContext(ctx).
+	err := tx.WithContext(ctx).
 		Where("uid = ? AND game_id = ? AND kv_key = ?", uid, gameID, key).
 		First(&kv).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -76,9 +86,16 @@ func (r *GameKvRepository) ListAll(ctx context.Context, uid uint, gameID string)
 //   - 记录存在且 version 匹配 → 更新
 //   - 记录存在但 version 不匹配 → 返回 ErrVersionConflict
 func (r *GameKvRepository) Put(ctx context.Context, kv *entities.GameKv, expectedVersion int64) error {
+	return r.PutWithTx(ctx, r.DB, kv, expectedVersion)
+}
+
+// PutWithTx 在给定事务内写入。
+//
+// ⚠️ 事务内**必须**用这个方法，理由同 GetWithTx。
+func (r *GameKvRepository) PutWithTx(ctx context.Context, tx *gorm.DB, kv *entities.GameKv, expectedVersion int64) error {
 	if expectedVersion > 0 {
-		// 乐观锁路径：先查当前版本
-		cur, err := r.Get(ctx, kv.UID, kv.GameID, kv.Key)
+		// 乐观锁路径：先查当前版本（同一事务内）
+		cur, err := r.GetWithTx(ctx, tx, kv.UID, kv.GameID, kv.Key)
 		if err != nil {
 			return err
 		}
@@ -88,7 +105,7 @@ func (r *GameKvRepository) Put(ctx context.Context, kv *entities.GameKv, expecte
 		if cur.Version != expectedVersion {
 			return ErrVersionConflict
 		}
-		res := r.DB.WithContext(ctx).Model(&entities.GameKv{}).
+		res := tx.WithContext(ctx).Model(&entities.GameKv{}).
 			Where("uid = ? AND game_id = ? AND kv_key = ? AND version = ?",
 				kv.UID, kv.GameID, kv.Key, expectedVersion).
 			Updates(map[string]interface{}{
@@ -107,7 +124,7 @@ func (r *GameKvRepository) Put(ctx context.Context, kv *entities.GameKv, expecte
 	}
 
 	// 无锁路径：直接 upsert，version 自增
-	return r.DB.WithContext(ctx).Clauses(clause.OnConflict{
+	if err := tx.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{
 			{Name: "uid"}, {Name: "game_id"}, {Name: "kv_key"},
 		},
@@ -117,7 +134,23 @@ func (r *GameKvRepository) Put(ctx context.Context, kv *entities.GameKv, expecte
 			"version":    gorm.Expr("version + 1"),
 			"updated_at": gorm.Expr("updated_at"),
 		}),
-	}).Create(kv).Error
+	}).Create(kv).Error; err != nil {
+		return err
+	}
+
+	// ⚠️ upsert 走的是 SQL 表达式 `version + 1`，GORM 不会把结果回写到结构体，
+	// 所以这里必须重新读一次真实版本号。
+	// 不回读的后果：客户端拿到的 version 永远是 0，乐观锁（expected_version）
+	// 永远匹配不上 → 多设备冲突检测形同虚设；快照里记录的 version 也是错的。
+	// 实测踩过：写入成功但 version 一直是 0。
+	row, err := r.GetWithTx(ctx, tx, kv.UID, kv.GameID, kv.Key)
+	if err != nil {
+		return err
+	}
+	if row != nil {
+		kv.Version = row.Version
+	}
+	return nil
 }
 
 // Delete 删除单个键

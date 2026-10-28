@@ -31,14 +31,15 @@ type IRouter interface {
 // Router 路由注册入口。
 // 按业务域拆分文件：router_auth.go / router_game.go / router_user.go ...
 type Router struct {
-	SystemAPI      *api.SystemAPI
-	AuthAPI        *api.AuthAPI
-	UserAPI        *api.UserAPI
-	WalletAPI      *api.WalletAPI
-	GameAPI        *api.GameAPI
-	GameStorageAPI *api.GameStorageAPI
-	GameCoinAPI    *api.GameCoinAPI
-	TaskAPI        *api.TaskAPI
+	SystemAPI       *api.SystemAPI
+	AuthAPI         *api.AuthAPI
+	UserAPI         *api.UserAPI
+	WalletAPI       *api.WalletAPI
+	GameAPI         *api.GameAPI
+	GameStorageAPI  *api.GameStorageAPI
+	GameSnapshotAPI *api.GameSnapshotAPI
+	GameCoinAPI     *api.GameCoinAPI
+	TaskAPI         *api.TaskAPI
 
 	// RDS 供中间件做黑名单/限流（可为 nil，表示降级运行）
 	RDS *redis.Client
@@ -163,6 +164,17 @@ func (a *Router) registerAPI(app *gin.Engine) {
 		kvGroup.POST("/list", a.GameStorageAPI.List)
 		kvGroup.POST("/delete", a.GameStorageAPI.Delete)
 		kvGroup.POST("/usage", a.GameStorageAPI.Usage)
+	}
+
+	// ---- 存档快照与回档（需登录）----
+	snapGroup := r.Group("/game/snapshot").Use(middleware.JWTMiddleware(a.RDS))
+	{
+		snapGroup.POST("/list", a.GameSnapshotAPI.List)
+		snapGroup.POST("/get", a.GameSnapshotAPI.Get)
+		snapGroup.POST("/create", a.GameSnapshotAPI.Create)
+		snapGroup.POST("/restore", a.GameSnapshotAPI.Restore)
+		snapGroup.POST("/restore-by-time", a.GameSnapshotAPI.RestoreByTime)
+		snapGroup.POST("/restore-logs", a.GameSnapshotAPI.RestoreLogs)
 	}
 
 	// ---- 游戏币（需登录）----

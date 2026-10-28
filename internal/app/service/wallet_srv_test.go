@@ -14,23 +14,42 @@ import (
 	"gorm.io/gorm/schema"
 )
 
-// newTestDB 创建内存 SQLite 数据库并建表
+// newTestDB 创建内存 SQLite 数据库并建表。
+//
+// 每个测试用**独立的 in-memory 库名**（按 t.Name() 区分），
+// 避免共享 `file::memory:?cache=shared` 时用例之间互相干扰
+// （尤其是事务未提交时的表锁会串到别的用例）。
+//
+// ⚠️ 连接池刻意设为 **1 条**：这样任何「在事务里用外层 DB 句柄」
+// 的错误写法都会立刻死锁暴露，而不是在测试环境侥幸跑过去、
+// 到生产才因为连接池耗尽而出事。实测靠这个设定抓到过回档逻辑的死锁。
 func newTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{
+
+	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		Logger:         gormlogger.Default.LogMode(gormlogger.Silent),
 		NamingStrategy: schema.NamingStrategy{SingularTable: true},
 	})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get sql.DB: %v", err)
+	}
+	// 只允许 1 条连接：把「事务内再取连接」的死锁变成确定性失败
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
+
 	if err := repository.AutoMigrate(db); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	// 每个测试用独立表：清空数据
-	for _, m := range repository.Models() {
-		_ = db.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(m).Error
-	}
+
+	// 用完关闭，避免内存库在测试进程内累积
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
 	return db
 }
 

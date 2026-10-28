@@ -23,6 +23,7 @@ var SrvSet = wire.NewSet(
 	AuthServiceSet,
 	GameServiceSet,
 	GameStorageServiceSet,
+	GameSnapshotServiceSet,
 	GameCoinServiceSet,
 	TaskServiceSet,
 	CheckInServiceSet,

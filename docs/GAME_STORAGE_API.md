@@ -46,12 +46,25 @@
   "code": 200,
   "data": {
     "key": "save",
-    "value": { "level": 5, "coins": 120, "crops": [{ "id": "radish", "n": 3 }] }
+    "value": { "level": 5, "coins": 120, "crops": [{ "id": "radish", "n": 3 }] },
+    "version": 3,
+    "exists": true,
+    "size": 51,
+    "updated_at": 1793184189
   }
 }
 ```
 
-未存过时 `value` 为 `null`（与前端 `undefined` 语义对齐）。
+| 字段 | 说明 |
+|---|---|
+| value | 存档内容，未存过时为 `null`（与前端 `undefined` 语义对齐） |
+| **version** | **当前版本号。下次乐观锁写入必须回传它** |
+| exists | 是否存过（`false` 时 `version=0`、`value=null`） |
+| size | 内容字节数 |
+| updated_at | 最后更新时间（Unix 秒） |
+
+> ⚠️ **一定要保存 `version`**。不传 `expected_version` 就往回写，
+> 等于放弃多设备冲突检测（两台设备同时玩，后写的会静默覆盖先写的）。
 
 ---
 
@@ -64,7 +77,7 @@
   "game_id": "cloudfarm",
   "key": "save",
   "value": { "level": 5, "coins": 120 },
-  "expected_version": 0
+  "expected_version": 3
 }
 ```
 
@@ -73,15 +86,18 @@
 | game_id | 是 | 游戏 ID |
 | key | 是 | 键名（≤128 字符，不能以 `__` 开头） |
 | value | 是 | 任意 JSON（≤1MB） |
-| expected_version | 否 | 乐观锁版本号（>0 时启用） |
+| expected_version | 否 | 乐观锁版本号（**>0 时启用**，回传 `get` 拿到的 `version`） |
 
 **响应**
 
 ```json
-{ "code": 200, "data": { "key": "save", "version": 1 } }
+{ "code": 200, "data": { "key": "save", "version": 4 } }
 ```
 
 **整块覆盖** —— 与前端 `set()` 语义一致，不做局部更新。
+
+**版本冲突**：`expected_version` 与当前不符时返回 `10040701`，
+客户端应重新 `get` 拿最新值后再决定是否覆盖。
 
 ---
 
@@ -100,11 +116,15 @@
   "code": 200,
   "data": {
     "game_id": "cloudfarm",
-    "count": 1,
-    "data": { "save": { "level": 5 } }
+    "data": { "save": { "level": 5 }, "bag": [{ "item": "radish", "n": 3 }] },
+    "versions": { "save": 3, "bag": 0 },
+    "count": 2
   }
 }
 ```
+
+> **`data` 的形状与前端 `storage.list()` 完全一致**（`Record<string, unknown>`），
+> 前端替换实现时不用改插件契约。`versions` 是服务端附加的能力。
 
 **自动过滤保留键**（`__` 开头），与前端 `storage.list()` 一致。
 
@@ -146,6 +166,26 @@
   "data": { "total_bytes": 1240, "max_bytes": 67108864 }
 }
 ```
+
+---
+
+### 2.6 存档快照与回档
+
+**单独一篇**：[`SAVE_SNAPSHOT.md`](./SAVE_SNAPSHOT.md)
+
+KV 是整块覆盖，旧值一写就没了。快照提供三件事：
+
+| 能力 | 接口 |
+|---|---|
+| 查看存档历史 | `POST /api/game/snapshot/list` |
+| 看某一刻的存档内容 | `POST /api/game/snapshot/get` |
+| 手动存一个还原点 | `POST /api/game/snapshot/create` |
+| 回档到某个快照 | `POST /api/game/snapshot/restore` |
+| 按时间点回档 | `POST /api/game/snapshot/restore-by-time` |
+| 回档审计日志 | `POST /api/game/snapshot/restore-logs` |
+
+关键设计：**回档本身也可回档** —— 回档前会自动把当前值存成
+`before_restore` 快照，所以回错了还能撤回来。
 
 ---
 
@@ -341,11 +381,25 @@ storage: {
 | 10040701 | 存档版本冲突（多设备） |
 | 10040801 | 保留键不可写 |
 | 10040901 | 游戏币不足 |
+| 10041001 | 存档快照不存在 |
+| 10041101 | 快照数量超出配额 |
 | 604 | 权限不足（写保留键 / 未拥有游戏） |
 
 ---
 
 ## 7. 已知问题与修复记录
+
+### 7.0 事务内用外层 DB 句柄导致死锁（已修复，详见 SAVE_SNAPSHOT.md §8）
+
+**现象**：回档测试挂死 600 秒超时。
+
+**原因**：`Transaction(func(tx))` 里调用了用 `r.DB` 的仓库方法，
+向连接池申请第二条连接，而第一条已被事务占用。
+
+**修复**：加 `GetWithTx` / `PutWithTx`，事务内一律用 `tx`。
+**测试防线**：测试库连接池固定为 1 条，让这类 bug 确定性失败。
+
+---
 
 ### 7.1 SQLite `LIKE` 通配符陷阱（已修复）
 

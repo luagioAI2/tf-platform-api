@@ -75,6 +75,8 @@ const (
 	GameKvVersionConflict = 10040701 // 存档版本冲突（多设备）
 	GameKvKeyReserved     = 10040801 // 保留键不可写
 	GameCoinInsufficient  = 10040901 // 游戏币不足
+	SnapshotNotExist      = 10041001 // 存档快照不存在
+	SnapshotQuotaExceeded = 10041101 // 快照数量超出配额
 )
 
 // ============================ 任务域 10 05 xx xx ============================
@@ -162,6 +164,8 @@ var ErrCodeMsg = map[int]string{
 	GameKvVersionConflict: "game-kv-version-conflict",
 	GameKvKeyReserved:     "game-kv-key-reserved",
 	GameCoinInsufficient:  "game-coin-insufficient",
+	SnapshotNotExist:      "snapshot-not-exist",
+	SnapshotQuotaExceeded: "snapshot-quota-exceeded",
 
 	TaskNotExist:         "task-not-exist",
 	TaskInstanceNotExist: "task-instance-not-exist",

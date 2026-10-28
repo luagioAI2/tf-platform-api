@@ -8,8 +8,10 @@ import (
 	"tf-api/internal/app/entities"
 	apperrors "tf-api/internal/app/errors"
 	"tf-api/internal/app/service/repository"
+	"tf-api/pkg/logger"
 
 	"github.com/google/wire"
+	"go.uber.org/zap"
 )
 
 var GameStorageServiceSet = wire.NewSet(ProvideGameStorageService)
@@ -23,14 +25,24 @@ var GameStorageServiceSet = wire.NewSet(ProvideGameStorageService)
 //	list()    → 列出全部键值（过滤保留键）
 //
 // 额外提供 delete（前端没有，但服务端需要支持「卸载游戏」）。
+//
+// ## 快照
+//
+// 每次写入都会按策略决定是否存快照（见 GameSnapshotService）。
+// 这样即使存档被写坏或误操作，也能回档到之前的某个时间点。
 type GameStorageService struct {
 	KvRepo   *repository.GameKvRepository
 	GameRepo *repository.GameRepository
+	SnapSrv  *GameSnapshotService
 }
 
 // ProvideGameStorageService 构造函数
-func ProvideGameStorageService(kvRepo *repository.GameKvRepository, gameRepo *repository.GameRepository) *GameStorageService {
-	return &GameStorageService{KvRepo: kvRepo, GameRepo: gameRepo}
+func ProvideGameStorageService(
+	kvRepo *repository.GameKvRepository,
+	gameRepo *repository.GameRepository,
+	snapSrv *GameSnapshotService,
+) *GameStorageService {
+	return &GameStorageService{KvRepo: kvRepo, GameRepo: gameRepo, SnapSrv: snapSrv}
 }
 
 // validateKey 校验 key 合法性
@@ -56,8 +68,11 @@ func validateKey(key string) error {
 	return nil
 }
 
-// Get 读取单个键
-func (s *GameStorageService) Get(ctx context.Context, uid uint, gameID, key string) (interface{}, error) {
+// Get 读取单个键。
+//
+// 返回值包含 `version` —— 客户端下次乐观锁写入必须回传它，
+// 否则多设备冲突检测形同虚设。
+func (s *GameStorageService) Get(ctx context.Context, uid uint, gameID, key string) (*entities.GameKvReadResp, error) {
 	if err := validateKey(key); err != nil {
 		return nil, err
 	}
@@ -70,16 +85,23 @@ func (s *GameStorageService) Get(ctx context.Context, uid uint, gameID, key stri
 		return nil, apperrors.WithError(err)
 	}
 	if kv == nil {
-		return nil, nil // 未存过，返回 null（与前端 undefined 语义对齐）
+		// 未存过：value 为 null（与前端 undefined 语义对齐），version 为 0
+		return &entities.GameKvReadResp{Key: key, Value: nil, Version: 0, Exists: false}, nil
 	}
 
-	// 值是任意 JSON，解析后返回
 	var out interface{}
 	if err := json.Unmarshal([]byte(kv.Value), &out); err != nil {
 		// 存档损坏：返回原始字符串，不报错（避免一个坏存档卡死整个游戏）
-		return kv.Value, nil
+		out = kv.Value
 	}
-	return out, nil
+	return &entities.GameKvReadResp{
+		Key:       key,
+		Value:     out,
+		Version:   kv.Version,
+		Exists:    true,
+		Size:      kv.Size,
+		UpdatedAt: kv.UpdatedAt,
+	}, nil
 }
 
 // Set 整块写入
@@ -128,15 +150,29 @@ func (s *GameStorageService) Set(ctx context.Context, uid uint, gameID, key stri
 	}
 	if err := s.KvRepo.Put(ctx, kv, expectedVersion); err != nil {
 		if err == repository.ErrVersionConflict {
-			return 0, apperrors.WithCode(apperrors.BalanceConflict)
+			// 用存档专属错误码，不要复用钱包的 BalanceConflict
+			// （否则客户端看到「余额更新冲突」一头雾水）
+			return 0, apperrors.WithCode(apperrors.GameKvVersionConflict)
 		}
 		return 0, apperrors.WithError(err)
 	}
+
+	// 按策略存快照（时间/变化幅度触发，不是每次都存）
+	// 失败不影响写入 —— 快照是「有更好」的能力，不能因为它挂掉就写不进存档。
+	if s.SnapSrv != nil {
+		s.SnapSrv.MaybeSnapshot(ctx, uid, gameID, key, string(value), kv.Version)
+	}
+
 	return kv.Version, nil
 }
 
-// List 列出某游戏的全部键值（过滤保留键）
-func (s *GameStorageService) List(ctx context.Context, uid uint, gameID string) (map[string]interface{}, error) {
+// List 列出某游戏的全部键值（过滤保留键）。
+//
+// 返回两样东西：
+//   - Data：`key → value`，**形状与前端 `storage.list()` 完全一致**，
+//     直接替换即可，不破坏插件契约；
+//   - Versions：`key → version`，供客户端做乐观锁写入时回传。
+func (s *GameStorageService) List(ctx context.Context, uid uint, gameID string) (*entities.GameKvListResp, error) {
 	if err := s.checkGameExists(ctx, uid, gameID); err != nil {
 		return nil, err
 	}
@@ -146,16 +182,24 @@ func (s *GameStorageService) List(ctx context.Context, uid uint, gameID string) 
 		return nil, apperrors.WithError(err)
 	}
 
-	out := make(map[string]interface{}, len(rows))
+	data := make(map[string]interface{}, len(rows))
+	versions := make(map[string]int64, len(rows))
 	for _, r := range rows {
 		var v interface{}
 		if err := json.Unmarshal([]byte(r.Value), &v); err != nil {
-			out[r.Key] = r.Value // 坏存档原样返回
-			continue
+			data[r.Key] = r.Value // 坏存档原样返回
+		} else {
+			data[r.Key] = v
 		}
-		out[r.Key] = v
+		versions[r.Key] = r.Version
 	}
-	return out, nil
+
+	return &entities.GameKvListResp{
+		GameID:   gameID,
+		Data:     data,
+		Versions: versions,
+		Count:    len(data),
+	}, nil
 }
 
 // Delete 删除单个键
@@ -174,6 +218,13 @@ func (s *GameStorageService) Uninstall(ctx context.Context, uid uint, gameID str
 	n, err := s.KvRepo.DeleteGame(ctx, uid, gameID)
 	if err != nil {
 		return 0, apperrors.WithError(err)
+	}
+	// 同时清理快照（否则卸载后快照会一直占存储）
+	if s.SnapSrv != nil {
+		if _, err := s.SnapSrv.DeleteGameSnapshots(ctx, uid, gameID); err != nil {
+			logger.ZWarn("delete snapshots failed",
+				zap.Uint("uid", uid), zap.String("game_id", gameID), zap.Error(err))
+		}
 	}
 	return n, nil
 }

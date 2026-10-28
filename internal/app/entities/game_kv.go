@@ -137,6 +137,40 @@ type GameWallet struct {
 
 func (GameWallet) TableName() string { return "game_wallet" }
 
+// ============================ 读写响应 ============================
+
+// GameKvReadResp 读取单个键的响应。
+//
+// `version` 必须回给客户端：下次乐观锁写入要用它做 `expected_version`，
+// 否则多设备冲突检测无从谈起。
+type GameKvReadResp struct {
+	Key   string      `json:"key"`
+	Value interface{} `json:"value"`
+	// Version 当前版本号（不存在时为 0）
+	Version int64 `json:"version"`
+	// Exists 是否存过（false 时 value 为 null）
+	Exists bool `json:"exists"`
+	// Size 内容字节数
+	Size int64 `json:"size,omitempty"`
+	// UpdatedAt 最后更新时间（Unix 秒）
+	UpdatedAt int64 `json:"updated_at,omitempty"`
+}
+
+// GameKvListResp 列出全部键值的响应。
+//
+// ⚠️ `Data` 的形状刻意与前端 `host.storage.list()` 完全一致
+// （`Record<string, unknown>`），这样前端替换实现时**不用改插件契约**。
+// `Versions` 是服务端附加的能力，供乐观锁使用。
+type GameKvListResp struct {
+	GameID string `json:"game_id"`
+	// Data key → value（与前端 list() 一致）
+	Data map[string]interface{} `json:"data"`
+	// Versions key → version（供乐观锁）
+	Versions map[string]int64 `json:"versions"`
+	// Count 键数量
+	Count int `json:"count"`
+}
+
 // ============================ 常量 ============================
 
 const (

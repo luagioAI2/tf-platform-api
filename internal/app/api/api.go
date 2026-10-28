@@ -13,6 +13,7 @@ var APISet = wire.NewSet(
 	WalletAPISet,
 	GameAPISet,
 	GameStorageAPISet,
+	GameSnapshotAPISet,
 	GameCoinAPISet,
 	TaskAPISet,
 )

@@ -76,9 +76,19 @@ func BuildInjector(info buildinfo.Info) (*Injector, func(), error) {
 	gameKvRepository := &repository.GameKvRepository{
 		DB: db,
 	}
-	gameStorageService := service.ProvideGameStorageService(gameKvRepository, gameRepository)
+	gameKvSnapshotRepository := &repository.GameKvSnapshotRepository{
+		DB: db,
+	}
+	gameKvRestoreLogRepository := &repository.GameKvRestoreLogRepository{
+		DB: db,
+	}
+	gameSnapshotService := service.ProvideGameSnapshotService(gameKvSnapshotRepository, gameKvRestoreLogRepository, gameKvRepository, db)
+	gameStorageService := service.ProvideGameStorageService(gameKvRepository, gameRepository, gameSnapshotService)
 	gameStorageAPI := &api.GameStorageAPI{
 		Srv: gameStorageService,
+	}
+	gameSnapshotAPI := &api.GameSnapshotAPI{
+		Srv: gameSnapshotService,
 	}
 	gameCoinRepository := &repository.GameCoinRepository{
 		DB: db,
@@ -102,16 +112,17 @@ func BuildInjector(info buildinfo.Info) (*Injector, func(), error) {
 	}
 	rateLimiter := provideRateLimiter(client)
 	routerRouter := &router.Router{
-		SystemAPI:      systemAPI,
-		AuthAPI:        authAPI,
-		UserAPI:        userAPI,
-		WalletAPI:      walletAPI,
-		GameAPI:        gameAPI,
-		GameStorageAPI: gameStorageAPI,
-		GameCoinAPI:    gameCoinAPI,
-		TaskAPI:        taskAPI,
-		RDS:            client,
-		Limiter:        rateLimiter,
+		SystemAPI:       systemAPI,
+		AuthAPI:         authAPI,
+		UserAPI:         userAPI,
+		WalletAPI:       walletAPI,
+		GameAPI:         gameAPI,
+		GameStorageAPI:  gameStorageAPI,
+		GameSnapshotAPI: gameSnapshotAPI,
+		GameCoinAPI:     gameCoinAPI,
+		TaskAPI:         taskAPI,
+		RDS:             client,
+		Limiter:         rateLimiter,
 	}
 	engine := InitGinEngine(routerRouter, info)
 	asyncServiceManager := &service.AsyncServiceManager{

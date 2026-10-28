@@ -26,6 +26,10 @@ var RepoSet = wire.NewSet(
 	GameKvRepositorySet,
 	GameCoinRepositorySet,
 
+	// 存档快照与回档
+	GameKvSnapshotRepositorySet,
+	GameKvRestoreLogRepositorySet,
+
 	// 任务系统
 	TaskRepositorySet,
 	CheckInRepositorySet,

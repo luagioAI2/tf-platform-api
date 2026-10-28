@@ -45,7 +45,7 @@ func (c *GameStorageAPI) Get(ctx *gin.Context) {
 		ginx.RespErr(ctx, err)
 		return
 	}
-	ginx.RespSucc(ctx, gin.H{"key": req.Key, "value": v})
+	ginx.RespSucc(ctx, v)
 }
 
 // Set 写入存档
@@ -107,7 +107,7 @@ func (c *GameStorageAPI) List(ctx *gin.Context) {
 		ginx.RespErr(ctx, err)
 		return
 	}
-	ginx.RespSucc(ctx, gin.H{"game_id": req.GameID, "data": all, "count": len(all)})
+	ginx.RespSucc(ctx, all)
 }
 
 // Delete 删除存档
