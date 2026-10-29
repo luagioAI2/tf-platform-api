@@ -121,14 +121,13 @@ func (s *WishService) History(ctx context.Context, uid uint, limit int) ([]*enti
 			return nil, apperrors.WithError(err)
 		}
 		for _, r := range records {
+			// 文案与前端 `redeemHistory` 逐字对齐
 			tag := "待兑现"
-			pending := true
+			if r.Fulfilled {
+				tag = "已兑现"
+			}
 			if r.Cancelled {
-				tag = "已取消"
-				pending = false
-			} else if r.Fulfilled {
-				tag = "已经拿到"
-				pending = false
+				tag = "已取消 · 已退回"
 			}
 			rows = append(rows, &entities.HistoryRow{
 				ID:         r.RecordID,
@@ -141,7 +140,7 @@ func (s *WishService) History(ctx context.Context, uid uint, limit int) ([]*enti
 				PointsPaid: r.PointsPaid,
 				Cost:       r.Cost,
 				Tag:        tag,
-				Pending:    pending,
+				Pending:    !r.Fulfilled && !r.Cancelled,
 			})
 		}
 	}
@@ -158,9 +157,23 @@ func (s *WishService) History(ctx context.Context, uid uint, limit int) ([]*enti
 		}
 
 		tag := entities.WishStatusText[o.Status]
-		pending := o.Status == entities.WishStatusCommitted ||
-			o.Status == entities.WishStatusConfirmed
 		delivered := o.OpenedGameID != ""
+
+		// 取消的单子要写清「钱退回来了」，不然家长以为券白花了
+		if o.Status == entities.WishStatusCancelled {
+			tag = "已取消 · 已退回"
+		}
+
+		// ⚠️ 已交付的数字商品**不算**待兑现。
+		//
+		// 它确实还停在 `committed`（等家长点「完成这一单」），
+		// 但东西孩子已经拿到手了 —— 计数把它算进去的话，记录页会出现
+		// 「红点 1 + 绿标签 已放进游戏柜」这种自相矛盾的一屏。
+		// 家长那边的收尾提示在心愿页顶部，不靠这个数。
+		//
+		// 判据 `!delivered` 与前端 `redeemHistory` 的 `&& !o.openedGameId` 一致。
+		pending := (o.Status == entities.WishStatusCommitted ||
+			o.Status == entities.WishStatusConfirmed) && !delivered
 
 		var buyURL, buyLabel string
 		if it, err := s.Repo.GetItem(ctx, o.ItemID); err == nil && it != nil {
