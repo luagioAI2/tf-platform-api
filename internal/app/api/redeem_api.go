@@ -19,6 +19,8 @@ var RedeemAPISet = wire.NewSet(wire.Struct(new(RedeemAPI), "*"))
 //   - 兑现 / 取消 = 家长
 type RedeemAPI struct {
 	Srv *service.RedeemService
+	// WishSrv 供「兑换记录」合并时间线（读心愿那半）
+	WishSrv *service.WishService
 }
 
 // ============================ 商品管理（家长） ============================
@@ -111,7 +113,7 @@ func (c *RedeemAPI) DeleteItem(ctx *gin.Context) {
 
 // ListItems 可兑换商品列表
 // @Tags Redeem[兑换商城]
-// @Summary 可兑换商品列表（含分账预览）
+// @Summary 可兑换商品列表（家里的兑换品 + 已上架的心愿商品，混排）
 // @Accept json
 // @Produce json
 // @Security ApiKeyAuth
@@ -126,7 +128,38 @@ func (c *RedeemAPI) ListItems(ctx *gin.Context) {
 	var req entities.ListRedeemItemReq
 	_ = ctx.ShouldBindJSON(&req)
 
+	// 心愿商品由 ListItems 内部混入（「定价 = 上架」），
+	// 返回的行带 source 区分来源，但**排在同一个列表里**。
 	list, err := c.Srv.ListItems(ctx.Request.Context(), uid, req.IncludeArchived)
+	if err != nil {
+		ginx.RespErr(ctx, err)
+		return
+	}
+	ginx.RespSucc(ctx, gin.H{"list": list, "count": len(list)})
+}
+
+// History 兑换记录（合并时间线）
+// @Tags Redeem[兑换商城]
+// @Summary 兑换记录：家里换的 + 心愿换的，合成一条时间线
+// @Accept json
+// @Produce json
+// @Security ApiKeyAuth
+// @Success 200 {object} ginx.Resp
+// @Router /api/redeem/history [post]
+func (c *RedeemAPI) History(ctx *gin.Context) {
+	uid, ok := ginx.MustMine(ctx)
+	if !ok {
+		return
+	}
+	var req struct {
+		Limit int `json:"limit" binding:"omitempty,min=1,max=200"`
+	}
+	_ = ctx.ShouldBindJSON(&req)
+
+	// ⚠️ 必须**合并两张表**（redeem_record + wish_order）——
+	// 家长报的 bug：「孩子刚兑换了一个游戏，为啥我兑换记录里看不到」。
+	// 详见 service.WishService.History 的注释。
+	list, err := c.WishSrv.History(ctx.Request.Context(), uid, req.Limit)
 	if err != nil {
 		ginx.RespErr(ctx, err)
 		return

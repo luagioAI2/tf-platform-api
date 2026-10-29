@@ -113,14 +113,15 @@ func BuildInjector(info buildinfo.Info) (*Injector, func(), error) {
 	redeemRepository := &repository.RedeemRepository{
 		DB: db,
 	}
-	redeemService := service.ProvideRedeemService(redeemRepository, walletService, eventService, db)
-	redeemAPI := &api.RedeemAPI{
-		Srv: redeemService,
-	}
 	wishRepository := &repository.WishRepository{
 		DB: db,
 	}
-	wishService := service.ProvideWishService(wishRepository, gameRepository, walletService, eventService, db)
+	wishService := service.ProvideWishService(wishRepository, gameRepository, walletService, eventService, redeemRepository, db)
+	redeemService := service.ProvideRedeemService(redeemRepository, walletService, eventService, wishService, db)
+	redeemAPI := &api.RedeemAPI{
+		Srv:     redeemService,
+		WishSrv: wishService,
+	}
 	wishAPI := &api.WishAPI{
 		Srv: wishService,
 	}

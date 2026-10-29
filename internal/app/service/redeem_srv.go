@@ -33,8 +33,10 @@ type RedeemService struct {
 	Repo      *repository.RedeemRepository
 	WalletSrv *WalletService
 	EventSrv  *EventService
-	DB        *gorm.DB
-	timezone  *time.Location
+	// WishSrv 供「定价 = 上架」把心愿商品混进兑换列表（见 UnifiedRows）
+	WishSrv  *WishService
+	DB       *gorm.DB
+	timezone *time.Location
 }
 
 // ProvideRedeemService 构造函数
@@ -42,6 +44,7 @@ func ProvideRedeemService(
 	repo *repository.RedeemRepository,
 	walletSrv *WalletService,
 	eventSrv *EventService,
+	wishSrv *WishService,
 	db *gorm.DB,
 ) *RedeemService {
 	loc, err := time.LoadLocation(config.Get().ServiceSettings.Timezone)
@@ -52,6 +55,7 @@ func ProvideRedeemService(
 		Repo:      repo,
 		WalletSrv: walletSrv,
 		EventSrv:  eventSrv,
+		WishSrv:   wishSrv,
 		DB:        db,
 		timezone:  loc,
 	}
@@ -175,18 +179,29 @@ func (s *RedeemService) DeleteItem(ctx context.Context, uid uint, itemID string)
 
 // ============================ 商品列表（孩子/家长） ============================
 
-// ListItems 列出可兑换商品。
+// ListItems 列出「兑换」那一格的全部可换商品。
 //
-// 过滤规则（对齐前端）：
+// ## 两个来源，同一个列表（2026-10-29 家长口径）
+//
+//	Source = "redeem" —— 家长自己加的兑换品
+//	Source = "wish"   —— 心愿商品被家长**定了价**（「定价 = 上架」）
+//
+// 家长原话：「爸爸妈妈已经定好价格的，相当于添加了兑换，应该出现在
+// 兑换列表里」「和家里的兑换品排在同一个分类列表里」。
+//
+// ⚠️ 所以这里**不是**分成两块返回，而是混成一个列表按价格升序 ——
+// 分块的话就成了「另一个收银台」，而家长要的正是「不需要去心愿商城换」。
+//
+// ## 家里的兑换品的过滤规则
+//
 //   - 已归档的不出现
 //   - `once` 且换过的不出现（**永不重置**）
 //   - 库存为 0 的不出现
 //
-// 每个商品附带：
-//   - 今天已换数量 / 今日上限
-//   - 按当前余额算出的分账预览（券多少 + 积分多少）
-//   - 够不够换 / 还差多少
-func (s *RedeemService) ListItems(ctx context.Context, uid uint, includeArchived bool) ([]*entities.RedeemItemView, error) {
+// 心愿那半的过滤规则见 `WishService.ShelfEntries`（四条，一个都不能少）。
+//
+// 每行附带：分账预览（券多少 + 积分多少）/ 够不够换 / 今日上限。
+func (s *RedeemService) ListItems(ctx context.Context, uid uint, includeArchived bool) ([]*entities.RedeemRow, error) {
 	items, err := s.Repo.ListItems(ctx, uid, includeArchived)
 	if err != nil {
 		return nil, apperrors.WithError(err)
@@ -202,7 +217,7 @@ func (s *RedeemService) ListItems(ctx context.Context, uid uint, includeArchived
 	}
 
 	dayStart := s.todayStart()
-	out := make([]*entities.RedeemItemView, 0, len(items))
+	out := make([]*entities.RedeemRow, 0, len(items))
 
 	for _, it := range items {
 		// once：换过就不再出现
@@ -245,15 +260,28 @@ func (s *RedeemService) ListItems(ctx context.Context, uid uint, includeArchived
 		plan := entities.PlanRedeemPayment(it.Price, coupon, points)
 		blockedByLimit := it.LimitPerDay > 0 && todayCount >= int64(it.LimitPerDay)
 
-		out = append(out, &entities.RedeemItemView{
-			RedeemItem:     *it,
-			TodayCount:     todayCount,
-			RemainingToday: remainingToday,
+		out = append(out, &entities.RedeemRow{
+			Source:         "redeem",
+			ID:             it.ItemID,
+			Name:           it.Name,
+			Emoji:          it.Emoji,
+			Category:       string(it.Category),
+			Note:           it.Note,
+			Price:          it.Price,
 			Plan:           plan,
 			CanRedeem:      plan.Affordable && !blockedByLimit,
-			BlockedByLimit: blockedByLimit,
 			Description:    entities.DescribeRedeemPayment(plan.CouponPaid, plan.PointsPaid),
+			BlockedByLimit: blockedByLimit,
+			TodayCount:     todayCount,
+			RemainingToday: remainingToday,
+			Once:           it.Once,
+			Stock:          it.Stock,
 		})
+	}
+
+	// 混入「已上架」的心愿商品，并按价格升序排序
+	if s.WishSrv != nil {
+		return s.WishSrv.UnifiedRows(ctx, uid, out)
 	}
 	return out, nil
 }

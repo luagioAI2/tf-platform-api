@@ -34,8 +34,10 @@ type WishService struct {
 	GameRepo  *repository.GameRepository
 	WalletSrv *WalletService
 	EventSrv  *EventService
-	DB        *gorm.DB
-	timezone  *time.Location
+	// RedeemRepo 供「兑换记录」合并时间线读家里的那半（见 History）
+	RedeemRepo *repository.RedeemRepository
+	DB         *gorm.DB
+	timezone   *time.Location
 }
 
 // ProvideWishService 构造函数
@@ -44,6 +46,7 @@ func ProvideWishService(
 	gameRepo *repository.GameRepository,
 	walletSrv *WalletService,
 	eventSrv *EventService,
+	redeemRepo *repository.RedeemRepository,
 	db *gorm.DB,
 ) *WishService {
 	loc, err := time.LoadLocation(config.Get().ServiceSettings.Timezone)
@@ -51,12 +54,13 @@ func ProvideWishService(
 		loc = time.UTC
 	}
 	return &WishService{
-		Repo:      repo,
-		GameRepo:  gameRepo,
-		WalletSrv: walletSrv,
-		EventSrv:  eventSrv,
-		DB:        db,
-		timezone:  loc,
+		Repo:       repo,
+		GameRepo:   gameRepo,
+		WalletSrv:  walletSrv,
+		EventSrv:   eventSrv,
+		RedeemRepo: redeemRepo,
+		DB:         db,
+		timezone:   loc,
 	}
 }
 
@@ -363,22 +367,35 @@ func (s *WishService) Wish(ctx context.Context, uid uint, req *entities.WishReq)
 	return o, nil
 }
 
-// ============================ 确定兑换（扣券 + 交付） ============================
+// ============================ 确定兑换（扣钱 + 交付） ============================
 
 // Redeem 孩子确定兑换。
+//
+// ## 付款规则（2026-10-29 v3 起与「兑换」完全一致）
+//
+// 用户原话：「就跟兑换模块一样的，可以用兑换券和积分兑换」。
+// 所以这里**直接委托 `entities.PlanRedeemPayment`**：
+//
+//	券先花 → 券不够用积分补 → 1 券 ≡ 1 积分 → 可混付
+//
+// ⚠️ **不要再在这里写一遍分账公式**。两处各写一遍的话，
+// 改一处忘另一处时界面预览和真正扣款会算出两个数，
+// 差额通常只有几分 —— 孩子的余额看起来就是「莫名其妙少了 1」。
+//
+// ⚠️ v2 的「只收券、不混付」**已作废**，别再按那条写校验。
 //
 // ## 事务边界（关键）
 //
 // 全部在一个事务里：
 //  1. 加锁读商品 + 进行中订单
-//  2. 校验：已开放、券够、盲盒池非空、实物要收货信息
-//  3. **扣券**（`VouchersHeld = VoucherPrice`）
+//  2. 校验：已开放、两种币加起来够、盲盒池非空、实物要收货信息
+//  3. **扣钱**（券 + 积分**各写一笔账**，为 0 的那一侧不写）
 //  4. 数字商品：当场交付（开盲盒 / 装包 → 授予游戏）
 //  5. 状态 → `committed`
 //
-// ## 为什么券必须真扣
+// ## 为什么钱必须真扣
 //
-// 因为**成交在 App 外面**。券如果不扣，孩子可以同时挂 10 个「已兑换」，
+// 因为**成交在 App 外面**。钱如果不扣，孩子可以同时挂 10 个「已兑换」，
 // 家长每个都要去淘宝买 —— 那是灾难。
 //
 // ## 为什么数字商品直接到 `committed` 而不是 `done`
@@ -425,16 +442,18 @@ func (s *WishService) Redeem(ctx context.Context, uid uint, req *entities.WishRe
 			return apperrors.WithCode(apperrors.WishShipInfoRequired)
 		}
 
-		// 券够不够
+		// 算分账：券优先，不够用积分补（与「兑换」同一个函数）
 		wallet, err := s.WalletSrv.GetWalletWithTx(ctx, tx, uid)
 		if err != nil {
 			return err
 		}
-		var vouchers int64
+		var couponBal, pointsBal int64
 		if wallet != nil {
-			vouchers = wallet.Coupon
+			couponBal, pointsBal = wallet.Coupon, wallet.Points
 		}
-		if vouchers < price {
+		plan := entities.PlanRedeemPayment(price, couponBal, pointsBal)
+		if !plan.Affordable {
+			// 差额是**两种币合起来**算的，文案里不带「张」
 			return apperrors.WithCode(apperrors.WishVoucherShort)
 		}
 
@@ -457,19 +476,17 @@ func (s *WishService) Redeem(ctx context.Context, uid uint, req *entities.WishRe
 			openedGameID = it.GameID
 		}
 
-		// 扣券
-		if _, _, err := s.WalletSrv.ChangeWithTx(ctx, tx, repository.BalanceChange{
-			UID:            uid,
-			Currency:       entities.CurrencyCoupon,
-			Delta:          -price,
-			Source:         entities.SourceWishRedeem,
-			RefID:          it.ItemID,
-			Memo:           fmt.Sprintf("心愿兑换：%s", it.Name),
-			IdempotencyKey: "wish_redeem:" + req.ClientRequestID,
-		}); err != nil {
-			return err
-		}
-
+		// 订单号要在**扣款之前**定下来 —— 幂等键要用它。
+		//
+		// ⚠️ 原来这里用 `"wish_redeem:" + req.ClientRequestID`，而
+		// `ClientRequestID` 允许为空 —— 于是幂等键退化成一个**常量**
+		// `"wish_redeem:"`，第二次兑换必然撞账本唯一索引，
+		// 报「该笔记录已存在」，孩子**再也换不了这件商品**。
+		// 实测踩过：取消后想重新兑换，报 10020801。
+		//
+		// 用 `orderID` 才对：一个订单对每种币**最多扣一次**，
+		// 而「客户端重试」的幂等由**状态 CAS** 兜着
+		// （重试时订单已是 committed，`UpdateOrderCAS(from=wished)` 会失败）。
 		now := time.Now().Unix()
 		if order == nil {
 			order = &entities.WishOrder{
@@ -485,15 +502,52 @@ func (s *WishService) Redeem(ctx context.Context, uid uint, req *entities.WishRe
 				return err
 			}
 		}
+		idem := order.OrderID
+
+		// 扣券（为 0 不写 —— 写一笔 delta 0 的账，流水里会凭空多出一条）
+		if plan.CouponPaid > 0 {
+			if _, _, err := s.WalletSrv.ChangeWithTx(ctx, tx, repository.BalanceChange{
+				UID:            uid,
+				Currency:       entities.CurrencyCoupon,
+				Delta:          -plan.CouponPaid,
+				Source:         entities.SourceWishRedeem,
+				RefID:          it.ItemID,
+				Memo:           fmt.Sprintf("心愿兑换：%s", it.Name),
+				IdempotencyKey: "wish_redeem:" + idem,
+			}); err != nil {
+				return err
+			}
+		}
+
+		// 扣积分（为 0 不写）。source 与券那侧**同名** —— 靠 Currency 区分，
+		// 前端 `LedgerSource` 也是这么设计的（2026-10-29 补的两个值）。
+		if plan.PointsPaid > 0 {
+			if _, _, err := s.WalletSrv.ChangeWithTx(ctx, tx, repository.BalanceChange{
+				UID:            uid,
+				Currency:       entities.CurrencyPoints,
+				Delta:          -plan.PointsPaid,
+				Source:         entities.SourceWishRedeem,
+				RefID:          it.ItemID,
+				Memo:           fmt.Sprintf("心愿兑换：%s", it.Name),
+				IdempotencyKey: "wish_redeem_points:" + idem,
+			}); err != nil {
+				return err
+			}
+		}
+
 		orderID = order.OrderID
 
 		// 交付数字商品（授予游戏）
+		//
+		// `PricePaid` 记**券那部分**（游戏用券换的语义），
+		// 混付时积分部分不重复记 —— 它是同一件商品的另一半付款，
+		// 记两次会让「这个游戏花了多少」翻倍。
 		if openedGameID != "" {
 			grant := &entities.UserGame{
 				UID:       uid,
 				GameID:    openedGameID,
 				Source:    entities.GameOwnedByBlindbox,
-				PricePaid: price,
+				PricePaid: plan.CouponPaid,
 				Currency:  entities.CurrencyCoupon,
 				OrderID:   order.OrderID,
 			}
@@ -506,9 +560,14 @@ func (s *WishService) Redeem(ctx context.Context, uid uint, req *entities.WishRe
 		}
 
 		// 状态 → committed（CAS 防并发）
+		//
+		// ⚠️ `vouchers_held` 和 `points_held` **必须一起写** ——
+		// 它们是退款凭据的两半。少写一个，取消时那半就退不回来，
+		// 而且**不报错**（账本只看 delta 之和，只会表现为「孩子的钱少了」）。
 		fields := map[string]interface{}{
 			"status":         string(entities.WishStatusCommitted),
-			"vouchers_held":  price,
+			"vouchers_held":  plan.CouponPaid,
+			"points_held":    plan.PointsPaid,
 			"voucher_price":  price,
 			"opened_game_id": openedGameID,
 			"committed_at":   now,
@@ -569,18 +628,25 @@ func (s *WishService) Done(ctx context.Context, uid uint, req *entities.WishHand
 	return s.transition(ctx, uid, req, order.Status, entities.WishStatusDone, extra)
 }
 
-// Cancel 家长取消 —— **退券**，数字商品**同时收回游戏**。
+// Cancel 家长取消 —— **退钱（券 + 积分各退一笔）**，数字商品**同时收回游戏**。
 //
 // ## 为什么要收回游戏（spec §5「取消 = 撤销交易」）
 //
-// 不收回的话就是「白拿」：孩子兑换→立刻取消→券退回来了、
+// 不收回的话就是「白拿」：孩子兑换→立刻取消→钱退回来了、
 // 游戏还留着。那就是印钞机。
+//
+// ## 退钱必须退两种币
+//
+// 2026-10-29 起可以券 + 积分混付。退款只退一种的话，
+// 另一半就**凭空蒸发**，而且**不报错** ——
+// 账本只看 delta 之和，症状只会表现为「孩子的钱少了」。
 //
 // ## 防重复退款
 //
 // 必须在**事务内先读 `status`** 并 CAS 更新，
 // 不能靠按钮 disabled —— 两个标签页同时点会各退一次。
-// 退款按 `VouchersHeld` 退，**不重新读商品** —— 商品改价了也不能退错。
+// 退款按 `VouchersHeld` / `PointsHeld` 退，**不重新读商品** ——
+// 商品改价了也不能退错（前端 2026-10-29 的 `f274c48` 专门为这条加了单测）。
 func (s *WishService) Cancel(ctx context.Context, uid uint, req *entities.WishHandleReq) (*entities.WishOrderView, error) {
 	err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		order, err := s.Repo.GetOrderForUpdate(ctx, tx, uid, req.OrderID)
@@ -604,6 +670,26 @@ func (s *WishService) Cancel(ctx context.Context, uid uint, req *entities.WishHa
 				RefID:          order.ItemID,
 				Memo:           fmt.Sprintf("取消心愿退回：%s", order.ItemName),
 				IdempotencyKey: "wish_refund:" + order.OrderID,
+			}); err != nil {
+				return err
+			}
+		}
+
+		// 退积分。
+		//
+		// ⚠️ **这一步不能省**：2026-10-29 起可以券 + 积分混付，
+		// 而「一笔成交扣两种币、退款只退一种」= 另一半凭空蒸发，
+		// 而且**不报错**（账本只看 delta 之和，只会表现为「孩子的钱少了」）。
+		// 前端 `wishCancel` 也是两张账本各退一笔。
+		if order.PointsHeld > 0 {
+			if _, _, err := s.WalletSrv.ChangeWithTx(ctx, tx, repository.BalanceChange{
+				UID:            uid,
+				Currency:       entities.CurrencyPoints,
+				Delta:          order.PointsHeld,
+				Source:         entities.SourceWishRefund,
+				RefID:          order.ItemID,
+				Memo:           fmt.Sprintf("取消心愿退回：%s", order.ItemName),
+				IdempotencyKey: "wish_refund_points:" + order.OrderID,
 			}); err != nil {
 				return err
 			}
@@ -754,13 +840,23 @@ func (s *WishService) ListOrders(ctx context.Context, uid uint, req *entities.Li
 // 于是孩子点完「想要这个」、他那一侧写「已经告诉爸妈」，
 // 家长那一侧却一片安静。两类要分开计数，因为**该做的动作不一样**：
 //
-//	wished              → 定价，或者这次先不换
+//	wished（还没定价）    → 定价，或者这次先不换
 //	committed/confirmed → 去外链买，或者收尾
+//
+// ## ★「待回应」的判据**不是** `status == wished`
+//
+// 家长定价之后，那条单子**仍然停在 `wished`** —— 它要等孩子真的来兑换，
+// 才会被复用途中并翻成 `committed`。于是「还没被回应」和「已开放、等孩子来换」
+// 在**数据上是同一个状态**。
+//
+// 只按状态算的话，家长定完价、红点还亮着，点进去却是一件已经开放的商品 ——
+// **一个点不完的数字比没有红点更糟**。
+//
+// 判据取「这件商品现在有没有开放价」：定价就是家长的**回应**。
+// `ClosedAt > 0` 的行不算开放（家长把它关了），那时重新变回「等你回应」是对的。
+//
+// 对应前端 `domain/wish.ts` 的 `wishesAwaitingReply`。
 func (s *WishService) PendingTasks(ctx context.Context, uid uint) (map[string]interface{}, error) {
-	wished, err := s.Repo.CountActiveByStatus(ctx, uid, entities.WishStatusWished)
-	if err != nil {
-		return nil, apperrors.WithError(err)
-	}
 	committed, err := s.Repo.CountActiveByStatus(ctx, uid,
 		entities.WishStatusCommitted, entities.WishStatusConfirmed)
 	if err != nil {
@@ -771,6 +867,13 @@ func (s *WishService) PendingTasks(ctx context.Context, uid uint) (map[string]in
 	if err != nil {
 		return nil, apperrors.WithError(err)
 	}
+
+	// 已开放的商品 id 集合（有价、且没关闭）
+	priced, err := s.Repo.ListOpenOfferItemIDs(ctx, uid)
+	if err != nil {
+		return nil, apperrors.WithError(err)
+	}
+
 	wishedItems := make([]map[string]interface{}, 0)
 	actionItems := make([]map[string]interface{}, 0)
 	for _, o := range all {
@@ -782,19 +885,23 @@ func (s *WishService) PendingTasks(ctx context.Context, uid uint) (map[string]in
 			"status":   string(o.Status),
 			"kind":     string(o.Kind),
 		}
-		if o.Status == entities.WishStatusWished {
+		// 还没定价的才算「等你回应」
+		if o.Status == entities.WishStatusWished && !priced[o.ItemID] {
 			wishedItems = append(wishedItems, item)
-		} else {
+		} else if o.Status != entities.WishStatusWished {
 			actionItems = append(actionItems, item)
 		}
+		// 已定价但仍 wished 的：两边都不进 —— 家长回应过了，等孩子来换
 	}
 
+	wishedCount := int64(len(wishedItems))
+
 	return map[string]interface{}{
-		"wished_count": wished,
+		"wished_count": wishedCount,
 		"action_count": committed,
 		"wished_items": wishedItems,
 		"action_items": actionItems,
-		"total":        wished + committed,
+		"total":        wishedCount + committed,
 	}, nil
 }
 

@@ -213,9 +213,18 @@ type WishOrder struct {
 
 	// VouchersHeld 这一单实际扣掉的券。
 	//
-	// `wished` 阶段是 0；`committed` 起等于 VoucherPrice。
+	// `wished` 阶段是 0；`committed` 起等于分账算出来的券部分。
 	// **退款按这个数退，不重新读商品** —— 商品改价了也不能退错。
 	VouchersHeld int64 `gorm:"column:vouchers_held;default:0" json:"vouchers_held"`
+
+	// PointsHeld 这一单实际扣掉的**积分**（2026-10-29 起可券 + 积分混付）。
+	//
+	// 缺省按 0 读（老订单全是纯券单）。
+	//
+	// ⚠️ **退款时必须和 VouchersHeld 一起退** —— 一笔成交扣两种币，
+	// 退款只退一种的话，孩子的另一半就凭空蒸发了，而且**不报错**。
+	// 前端 `WishOrder.pointsHeld` 与这里语义一致。
+	PointsHeld int64 `gorm:"column:points_held;default:0" json:"points_held"`
 
 	// OpenedGameID 盲盒开出的游戏 id（只有 blindbox 会有）
 	OpenedGameID string `gorm:"column:opened_game_id;size:32;index" json:"opened_game_id"`

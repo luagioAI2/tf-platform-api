@@ -239,6 +239,8 @@ func (a *Router) registerAPI(app *gin.Engine) {
 		// 列表与兑换
 		redeemGroup.POST("/list", a.RedeemAPI.ListItems)
 		redeemGroup.POST("/redeem", a.RedeemAPI.Redeem)
+		// 兑换记录：家里换的 + 心愿换的，合成一条时间线
+		redeemGroup.POST("/history", a.RedeemAPI.History)
 
 		// 记录与处理
 		redeemGroup.POST("/records", a.RedeemAPI.ListRecords)

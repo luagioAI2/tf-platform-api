@@ -310,6 +310,64 @@ func (r *WishRepository) ListRedeemedGameIDs(ctx context.Context, uid uint) ([]s
 	return ids, err
 }
 
+// ListOpenOfferItemIDs 列出**已开放**的商品 id 集合（有价、且没关闭）。
+//
+// 判据（对齐前端 `wishesAwaitingReply` / `wishShelf`）：
+//
+//	closed_at == 0 AND voucher_price > 0
+//
+// `closed_at > 0` 的行**不算开放** —— 家长把它关了，
+// 那条心愿重新变回「等你回应」是对的。
+func (r *WishRepository) ListOpenOfferItemIDs(ctx context.Context, uid uint) (map[string]bool, error) {
+	var ids []string
+	err := r.DB.WithContext(ctx).Model(&entities.WishOffer{}).
+		Where("uid = ? AND closed_at = 0 AND voucher_price > 0", uid).
+		Pluck("item_id", &ids).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		out[id] = true
+	}
+	return out, nil
+}
+
+// ListOpenOffers 列出**已开放**的开放设置（带价，供「上架到兑换列表」用）
+//
+// 与 `ListOffers` 的区别：这个只返回真正开放的（有价 + 没关闭），
+// 而且**不走 `ListOffers` 的 IN 查询** —— 兑换列表要的是「全部已开放的」，
+// 而不是「某批商品里哪些开放了」。
+func (r *WishRepository) ListOpenOffers(ctx context.Context, uid uint) ([]*entities.WishOffer, error) {
+	var list []*entities.WishOffer
+	err := r.DB.WithContext(ctx).
+		Where("uid = ? AND closed_at = 0 AND voucher_price > 0", uid).
+		Find(&list).Error
+	return list, err
+}
+
+// ListInFlightItemIDs 列出**已在走流程**的商品 id（committed / confirmed）。
+//
+// 用途：「上架到兑换列表」时要排除这些 —— 那件东西已经付过钱了，
+// 再列一次等于鼓励孩子换第二遍。
+func (r *WishRepository) ListInFlightItemIDs(ctx context.Context, uid uint) (map[string]bool, error) {
+	var ids []string
+	err := r.DB.WithContext(ctx).Model(&entities.WishOrder{}).
+		Where("uid = ? AND status IN ?", uid, []string{
+			string(entities.WishStatusCommitted),
+			string(entities.WishStatusConfirmed),
+		}).
+		Distinct().Pluck("item_id", &ids).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		out[id] = true
+	}
+	return out, nil
+}
+
 // ============================ 兑换码 ============================
 
 // CreateCode 创建兑换码
