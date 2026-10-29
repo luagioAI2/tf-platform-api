@@ -936,6 +936,34 @@ func (s *WishService) RedeemCode(ctx context.Context, uid uint, req *entities.Wi
 			return apperrors.WithCode(apperrors.WishCodeExpired)
 		}
 
+		// ★ 先把「这张码解锁哪款游戏」查出来，**在烧码之前**判「是不是已经有了」。
+		//
+		// 顺序反了就是这个结果：家长给孩子买了卡 → 孩子早就有了 →
+		// 码被标记已用，而 `GrantGameWithTx` 是 `ON CONFLICT DO NOTHING`
+		// ⇒ 一个游戏没多出来，界面上却写着「兑换成功」。
+		// 这张卡就白买了，而且**没有任何地方会报错**，家长只会以为码没用上。
+		gameID := ""
+		if code.ItemID != "" {
+			it, err := s.Repo.GetItem(ctx, code.ItemID)
+			if err != nil {
+				return err
+			}
+			if it != nil {
+				gameID = it.GameID
+			}
+		}
+		if gameID != "" {
+			var owned int64
+			if err := tx.Model(&entities.UserGame{}).
+				Where("uid = ? AND game_id = ?", uid, gameID).
+				Count(&owned).Error; err != nil {
+				return err
+			}
+			if owned > 0 {
+				return apperrors.WithCode(apperrors.GameAlreadyOwned)
+			}
+		}
+
 		// CAS 标记已用（防并发重复使用）
 		rows, err := s.Repo.MarkCodeUsed(ctx, tx, hash, uid, now)
 		if err != nil {
@@ -951,23 +979,16 @@ func (s *WishService) RedeemCode(ctx context.Context, uid uint, req *entities.Wi
 			Unlocked: true,
 		}
 
-		// 码对应游戏 → 解锁
-		if code.ItemID != "" {
-			it, err := s.Repo.GetItem(ctx, code.ItemID)
-			if err != nil {
+		if gameID != "" {
+			grant := &entities.UserGame{
+				UID:    uid,
+				GameID: gameID,
+				Source: entities.GameOwnedByCode,
+			}
+			if err := s.GameRepo.GrantGameWithTx(tx, grant); err != nil {
 				return err
 			}
-			if it != nil && it.GameID != "" {
-				grant := &entities.UserGame{
-					UID:    uid,
-					GameID: it.GameID,
-					Source: entities.GameOwnedByCode,
-				}
-				if err := s.GameRepo.GrantGameWithTx(tx, grant); err != nil {
-					return err
-				}
-				resp.GameID = it.GameID
-			}
+			resp.GameID = gameID
 		}
 		return nil
 	})

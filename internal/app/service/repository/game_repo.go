@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"time"
 
 	"tf-api/internal/app/entities"
 
@@ -112,8 +113,22 @@ func (r *GameRepository) HasGame(ctx context.Context, uid uint, gameID string) (
 	return count > 0, err
 }
 
+// stampGrant 补时间戳。
+//
+// 平台的 `BaseModel` 是 `autoCreateTime:false` / `autoUpdateTime:false` ——
+// GORM **不会**自己填，漏了就是 `created_at = 0`（1970）。
+// 授予游戏有四个调用点（默认拥有 / 购买 / 心愿 / 兑换码），
+// 各写一遍迟早漏一个，所以收在这里统一补。
+func stampGrant(ug *entities.UserGame) {
+	if ug.CreatedAt == 0 {
+		ug.CreatedAt = time.Now().Unix()
+	}
+	ug.UpdatedAt = ug.CreatedAt
+}
+
 // GrantGame 授予游戏（幂等，已拥有则不报错）
 func (r *GameRepository) GrantGame(ctx context.Context, ug *entities.UserGame) error {
+	stampGrant(ug)
 	return r.DB.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "uid"}, {Name: "game_id"}},
 		DoNothing: true,
@@ -122,6 +137,7 @@ func (r *GameRepository) GrantGame(ctx context.Context, ug *entities.UserGame) e
 
 // GrantGameWithTx 在事务内授予
 func (r *GameRepository) GrantGameWithTx(tx *gorm.DB, ug *entities.UserGame) error {
+	stampGrant(ug)
 	return tx.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "uid"}, {Name: "game_id"}},
 		DoNothing: true,
