@@ -99,6 +99,18 @@ CorsSettings:
     - 'http://127.0.0.1:4391'
     - 'http://127.0.0.1:4393'
     - 'http://127.0.0.1:4401'
+    # ---- App / 真机（Capacitor）----
+    # Android 的 WebView 用 https://localhost（Capacitor 6+ 默认 androidScheme=https），
+    # iOS 用 capacitor://localhost。**这两个不在白名单里，APK 里登录会直接失败**，
+    # 而且浏览器只会报「连不上服务器」—— 看不出是 CORS。
+    - 'https://localhost'
+    - 'http://localhost'
+    - 'capacitor://localhost'
+    - 'https://127.0.0.1'
+    # ---- 走查 / e2e 用的端口 ----
+    # 4396 是 `vite preview` 的 e2e 端口（e2e-*.mjs 全用它）。
+    # 换端口时记得同步这里，否则预检 403，而界面只说「连不上服务器」。
+    - 'http://127.0.0.1:4396'
   AllowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
   AllowHeaders: ['Origin', 'Content-Type', 'Accept', 'Authorization', 'X-Api-Token', 'Accept-Language', 'X-Request-ID']
   ExposeHeaders: ['X-Request-ID', 'X-Access-Token', 'X-Refresh-Token']

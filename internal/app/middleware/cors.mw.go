@@ -26,6 +26,12 @@ func CORSMiddleware() gin.HandlerFunc {
 		ExposeHeaders:    s.ExposeHeaders,
 		AllowCredentials: allowCreds,
 		MaxAge:           time.Duration(s.MaxAge) * time.Second,
+		// iOS 的 Capacitor WebView 发出的 Origin 是 `capacitor://localhost`，
+		// 而 gin-contrib/cors 默认只认 http:// / https:// —— 不在这里登记，
+		// `cors.New()` 会在**启动时 panic**（`bad origin: origins must contain '*' or include http://,https://`），
+		// 整个服务起不来，看起来像「端口被占」。
+		// Android 侧是 `https://localhost`，本身就在默认允许的 scheme 里。
+		CustomSchemas: []string{"capacitor://"},
 	}
 	if allowAll {
 		cfg.AllowOriginFunc = nil
