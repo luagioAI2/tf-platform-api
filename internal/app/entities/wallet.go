@@ -147,13 +147,22 @@ const (
 	SourceRedemptionCode  = "redemption_code"  // 兑换码
 )
 
+// 心愿商城来源
+//
+// 心愿商城**只收兑换券**（不混付积分），所以只有这两个方向：
+// 兑换时扣、取消时退。
+const (
+	SourceWishRedeem = "wish_redeem" // 心愿兑换（扣券）
+	SourceWishRefund = "wish_refund" // 取消心愿（退券）
+)
+
 // IsIncome 是否为收入
 func IsIncome(source string) bool {
 	switch source {
 	case SourceTaskReward, SourceCheckIn, SourceStreakBonus, SourceTierBonus,
 		SourceManualAdjust, SourceRedeemRefund, SourceRegisterGift, SourceInviteReward,
 		SourceFarmHarvest, SourceAnimalProduce, SourceClawPrize, SourcePluginMint,
-		SourceDiamondRecharge, SourceRedemptionCode:
+		SourceDiamondRecharge, SourceRedemptionCode, SourceWishRefund:
 		return true
 	}
 	return false

@@ -74,6 +74,19 @@ func (s *WalletService) GetWallet(ctx context.Context, uid uint) (*entities.Wall
 	}, nil
 }
 
+// GetWalletWithTx 事务内查询钱包（不存在则创建）。
+//
+// ⚠️ 事务内**必须**用这个方法：GetWallet 走的是外层 DB 句柄，
+// 会向连接池申请第二条连接（第一条已被事务占用），连接池打满时死锁。
+// 这个坑本项目在回档逻辑上踩过一次（测试挂死 600 秒），别重复。
+func (s *WalletService) GetWalletWithTx(ctx context.Context, tx *gorm.DB, uid uint) (*entities.Wallet, error) {
+	w, err := s.Repo.GetOrCreateWalletWithTx(ctx, tx, uid)
+	if err != nil {
+		return nil, apperrors.WithError(err)
+	}
+	return w, nil
+}
+
 // Balance 查询某币种余额
 func (s *WalletService) Balance(ctx context.Context, uid uint, currency entities.Currency) (int64, error) {
 	w, err := s.Repo.GetOrCreateWallet(ctx, uid)

@@ -33,4 +33,13 @@ var RepoSet = wire.NewSet(
 	// 任务系统
 	TaskRepositorySet,
 	CheckInRepositorySet,
+
+	// 兑换商城
+	RedeemRepositorySet,
+
+	// 心愿商城
+	WishRepositorySet,
+
+	// 游戏版本分发
+	GameReleaseRepositorySet,
 )

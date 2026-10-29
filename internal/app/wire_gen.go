@@ -110,6 +110,27 @@ func BuildInjector(info buildinfo.Info) (*Injector, func(), error) {
 		Srv:      taskService,
 		CheckSrv: checkInService,
 	}
+	redeemRepository := &repository.RedeemRepository{
+		DB: db,
+	}
+	redeemService := service.ProvideRedeemService(redeemRepository, walletService, eventService, db)
+	redeemAPI := &api.RedeemAPI{
+		Srv: redeemService,
+	}
+	wishRepository := &repository.WishRepository{
+		DB: db,
+	}
+	wishService := service.ProvideWishService(wishRepository, gameRepository, walletService, eventService, db)
+	wishAPI := &api.WishAPI{
+		Srv: wishService,
+	}
+	gameReleaseRepository := &repository.GameReleaseRepository{
+		DB: db,
+	}
+	gameReleaseService := service.ProvideGameReleaseService(gameReleaseRepository, gameRepository, eventService)
+	gameReleaseAPI := &api.GameReleaseAPI{
+		Srv: gameReleaseService,
+	}
 	rateLimiter := provideRateLimiter(client)
 	routerRouter := &router.Router{
 		SystemAPI:       systemAPI,
@@ -121,6 +142,9 @@ func BuildInjector(info buildinfo.Info) (*Injector, func(), error) {
 		GameSnapshotAPI: gameSnapshotAPI,
 		GameCoinAPI:     gameCoinAPI,
 		TaskAPI:         taskAPI,
+		RedeemAPI:       redeemAPI,
+		WishAPI:         wishAPI,
+		GameReleaseAPI:  gameReleaseAPI,
 		RDS:             client,
 		Limiter:         rateLimiter,
 	}

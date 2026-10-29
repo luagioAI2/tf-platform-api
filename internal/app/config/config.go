@@ -281,6 +281,59 @@ type WechatSetting struct {
 	APIKey string `yaml:"APIKey"`
 }
 
+// ============================ 游戏分发 ============================
+
+// GameDistributionSetting 游戏包分发配置。
+//
+// ## 为什么必须用 OSS/CDN（而不是让 API 进程发文件）
+//
+// `kid-quest-farm-2d` 的 `public/games/` 实测 **1492 个文件 / 169 MB**
+// （21 款游戏，单包 3~6 MB）。这个体量走 API 进程有两个硬问题：
+//
+//  1. Go 的 HTTP 服务每连接占一个 goroutine + 缓冲，几十 MB 的传输
+//     会把连接数和内存打满，正常 API 请求被挤掉；
+//  2. 带宽成本落在应用实例上，扩容只能加实例，比 CDN 贵一个量级。
+//
+// 所以：**包体放对象存储/CDN，客户端直连下载**，
+// 服务端只负责「发目录 + 发签名 + 记录版本」。
+type GameDistributionSetting struct {
+	// CatalogPrivateKey Ed25519 私钥（base64）。
+	//
+	// **生产环境必须用环境变量 TF_GAME_CATALOG_KEY 覆盖，绝不提交进仓库。**
+	// 空值 = 不能签名 = 目录接口报错（fail closed）。
+	CatalogPrivateKey string `yaml:"CatalogPrivateKey"`
+
+	// CatalogBaseURL 客户端拉取目录的基址（CDN/OSS 上的静态目录）。
+	//
+	// 留空则用本服务的 `/api/game/catalog`（便于本地联调）。
+	// 生产建议指向 CDN，把目录也放进缓存。
+	CatalogBaseURL string `yaml:"CatalogBaseURL"`
+
+	// PackageBaseURL 包下载根地址（OSS/CDN）。
+	//
+	// `GameRelease.URL` 存相对路径时，会和这个拼成完整地址。
+	// 存了绝对 URL（http/https 开头）则直接用。
+	PackageBaseURL string `yaml:"PackageBaseURL"`
+
+	// CatalogCacheSeconds 目录构建结果的内存缓存秒数（0 = 不缓存）
+	//
+	// 目录要遍历全部 active 版本 + JSON 序列化 + 签名，
+	// 每次请求都做是浪费。但发布新版本后必须能及时生效 ——
+	// `Publish` 里会主动失效缓存。
+	CatalogCacheSeconds int `yaml:"CatalogCacheSeconds"`
+
+	// SignedURLTTLSeconds 下载签名 URL 有效期（秒）。
+	//
+	// 0 = 用公开 CDN 地址（不签名）。公开地址是否可接受取决于业务：
+	// 包体是游戏代码，不是密钥；而且客户端本来就会验 SHA-256，
+	// 所以**完整性**靠签名目录保证，公开地址不影响安全。
+	// 但如果你想挡住「非用户也能下包」，就设一个非 0 值走签名 URL。
+	SignedURLTTLSeconds int `yaml:"SignedURLTTLSeconds"`
+
+	// MaxPackageBytes 单包体积上限（字节）。0 = 用默认 64MB
+	MaxPackageBytes int64 `yaml:"MaxPackageBytes"`
+}
+
 // ============================ 根配置 ============================
 
 type Config struct {
@@ -291,6 +344,8 @@ type Config struct {
 	UploadSettings  UploadSettings  `json:"UploadSettings" yaml:"UploadSettings"`
 	CaptchaSettings CaptchaSettings `json:"CaptchaSettings" yaml:"CaptchaSettings"`
 	WechatSetting   WechatSetting   `json:"WechatSetting" yaml:"WechatSetting"`
+	// GameDistribution 游戏包分发（目录签名 / OSS / CDN）
+	GameDistribution GameDistributionSetting `json:"GameDistribution" yaml:"GameDistribution"`
 }
 
 // Get 返回全局配置（只读，调用方不要修改）
@@ -357,6 +412,16 @@ func applyEnvOverrides(c *Config) {
 	}
 	if v := os.Getenv("TF_WECHAT_SECRET"); v != "" {
 		c.WechatSetting.AppSecret = v
+	}
+	// 游戏分发：私钥只走环境变量（绝不写进配置文件）
+	if v := os.Getenv("TF_GAME_CATALOG_KEY"); v != "" {
+		c.GameDistribution.CatalogPrivateKey = v
+	}
+	if v := os.Getenv("TF_GAME_CATALOG_URL"); v != "" {
+		c.GameDistribution.CatalogBaseURL = v
+	}
+	if v := os.Getenv("TF_GAME_PACKAGE_URL"); v != "" {
+		c.GameDistribution.PackageBaseURL = v
 	}
 }
 

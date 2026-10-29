@@ -128,6 +128,19 @@ func (r *GameRepository) GrantGameWithTx(tx *gorm.DB, ug *entities.UserGame) err
 	}).Create(ug).Error
 }
 
+// RevokeGameWithTx 事务内收回游戏。
+//
+// ⚠️ 只删 `user_game` 那一行，**不删存档**（`game_kv`）。
+//
+// 为什么保留存档：取消兑换往往是家长「这次先不换」，
+// 过几天可能又给买了。存档里有孩子辛苦攒的进度（农场等级、金币），
+// 删掉等于惩罚孩子 —— 而这不是取消兑换想做的事。
+// 而且重新授予时（`GrantGame`）存档还在，孩子能接着玩。
+func (r *GameRepository) RevokeGameWithTx(tx *gorm.DB, uid uint, gameID string) error {
+	return tx.Where("uid = ? AND game_id = ?", uid, gameID).
+		Delete(&entities.UserGame{}).Error
+}
+
 // ============================ 订单 ============================
 
 // CreateOrder 创建订单

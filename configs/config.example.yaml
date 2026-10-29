@@ -159,3 +159,38 @@ WechatSetting:
 # TF_METRICS          是否开启 /metrics（1/0）
 # TF_RATE_LIMIT       是否开启限流（1/0）
 # TF_RATE_LIMIT_GLOBAL 单 IP 限额（次/窗口）
+GameDistribution:
+  # Ed25519 私钥（base64）。**生产环境用环境变量 TF_GAME_CATALOG_KEY 覆盖。**
+  #
+  # 生成一对密钥：
+  #   go run ./cmd/seed keygen        （或任意 ed25519 工具）
+  # 私钥只落一份（密钥管理服务 / 环境变量），**绝不提交进仓库**；
+  # 公钥粘到前端 src/games/catalogKey.ts 的 CATALOG_PUBLIC_KEY_B64 并提交。
+  #
+  # 留空 = 不能签名 = 目录接口报错（fail closed）。
+  # 这是**故意的**：一个「没配就跳过验签」的分支，等于让
+  # 「谁拿下静态服务器，谁就能在孩子手机里跑任意代码」变成默认行为。
+  CatalogPrivateKey: ''
+
+  # 客户端拉目录的基址（建议指向 CDN）。留空 = 用本服务 /api/game/catalog
+  CatalogBaseURL: ''
+
+  # 包下载根地址（OSS/CDN）。GameRelease.URL 存相对路径时和它拼接。
+  #
+  # 游戏包总体积实测 169 MB（1492 个文件），**不能走 API 进程**：
+  # Go 服务每连接占一个 goroutine，几十 MB 的传输会把连接数和内存打满，
+  # 正常 API 请求被挤掉；而且带宽成本落在应用实例上，比 CDN 贵一个量级。
+  PackageBaseURL: ''
+
+  # 目录缓存秒数（发布新版本时会主动失效）
+  CatalogCacheSeconds: 300
+
+  # 下载签名 URL 有效期（秒）。0 = 用公开 CDN 地址。
+  #
+  # 公开地址是否可接受取决于业务：包体是游戏代码不是密钥，
+  # 且客户端本来就会验 SHA-256，所以**完整性**靠签名目录保证。
+  # 想挡住「非用户也能下包」就设非 0 值走签名 URL。
+  SignedURLTTLSeconds: 0
+
+  # 单包体积上限（字节）。0 = 默认 64MB
+  MaxPackageBytes: 0

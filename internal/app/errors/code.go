@@ -90,6 +90,42 @@ const (
 	TaskReviewPending    = 10050701 // 该任务正在等待审核
 )
 
+// ============================ 兑换域 10 06 xx xx ============================
+const (
+	RedeemItemNotExist   = 10060101 // 兑换商品不存在
+	RedeemItemOffline    = 10060201 // 兑换商品已下架
+	RedeemOnceOnly       = 10060301 // 该商品只能兑换一次
+	RedeemLimitExceeded  = 10060401 // 超出每日兑换上限
+	RedeemOutOfStock     = 10060501 // 库存不足
+	RedeemRecordNotExist = 10060601 // 兑换记录不存在
+	RedeemAlreadyHandled = 10060701 // 该兑换已处理（已兑现或已取消）
+)
+
+// ============================ 心愿域 10 07 xx xx ============================
+const (
+	WishItemNotExist     = 10070101 // 心愿商品不存在
+	WishItemNotOpen      = 10070201 // 该商品还未开放
+	WishItemOffline      = 10070301 // 心愿商品已下架
+	WishOrderNotExist    = 10070401 // 心愿单不存在
+	WishStatusNotAllowed = 10070501 // 心愿单状态不允许该操作
+	WishVoucherShort     = 10070601 // 兑换券不足
+	WishBlindBoxEmpty    = 10070701 // 盲盒池已空（该游戏全都拥有了）
+	WishGameRequired     = 10070801 // 游戏盒子必须指定游戏
+	WishCodeInvalid      = 10070901 // 兑换码无效
+	WishCodeUsed         = 10071001 // 兑换码已被使用
+	WishCodeExpired      = 10071101 // 兑换码已过期
+	WishShipInfoRequired = 10071201 // 需要填写收货信息
+)
+
+// ============================ 游戏分发域 10 08 xx xx ============================
+const (
+	GameReleaseNotExist  = 10080101 // 游戏版本不存在
+	GameReleaseDuplicate = 10080201 // 该版本已发布
+	GamePackageTooLarge  = 10080301 // 游戏包过大
+	GameSHA256Invalid    = 10080401 // SHA-256 格式不合法
+	GameCatalogSignFail  = 10080501 // 目录签名失败
+)
+
 // ============================ 文件域 10 03 xx xx ============================
 const (
 	FileNotAllowed     = 10030101 // 文件类型不允许
@@ -174,6 +210,33 @@ var ErrCodeMsg = map[int]string{
 	TaskNotCheckInTask:   "task-not-check-in-task",
 	TaskTimerNotStarted:  "task-timer-not-started",
 	TaskReviewPending:    "task-review-pending",
+
+	RedeemItemNotExist:   "redeem-item-not-exist",
+	RedeemItemOffline:    "redeem-item-offline",
+	RedeemOnceOnly:       "redeem-once-only",
+	RedeemLimitExceeded:  "redeem-limit-exceeded",
+	RedeemOutOfStock:     "redeem-out-of-stock",
+	RedeemRecordNotExist: "redeem-record-not-exist",
+	RedeemAlreadyHandled: "redeem-already-handled",
+
+	WishItemNotExist:     "wish-item-not-exist",
+	WishItemNotOpen:      "wish-item-not-open",
+	WishItemOffline:      "wish-item-offline",
+	WishOrderNotExist:    "wish-order-not-exist",
+	WishStatusNotAllowed: "wish-status-not-allowed",
+	WishVoucherShort:     "wish-voucher-short",
+	WishBlindBoxEmpty:    "wish-blind-box-empty",
+	WishGameRequired:     "wish-game-required",
+	WishCodeInvalid:      "wish-code-invalid",
+	WishCodeUsed:         "wish-code-used",
+	WishCodeExpired:      "wish-code-expired",
+	WishShipInfoRequired: "wish-ship-info-required",
+
+	GameReleaseNotExist:  "game-release-not-exist",
+	GameReleaseDuplicate: "game-release-duplicate",
+	GamePackageTooLarge:  "game-package-too-large",
+	GameSHA256Invalid:    "game-sha256-invalid",
+	GameCatalogSignFail:  "game-catalog-sign-fail",
 
 	FileNotAllowed:     "file-not-allowed",
 	FileTooLarge:       "file-too-large",

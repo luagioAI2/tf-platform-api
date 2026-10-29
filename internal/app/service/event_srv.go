@@ -27,6 +27,12 @@ const (
 	TaskCompletedEvent EventType = "task_completed"
 	// TaskCheckedInEvent 签到成功
 	TaskCheckedInEvent EventType = "task_checked_in"
+	// RedeemCompletedEvent 兑换商城兑换成功
+	RedeemCompletedEvent EventType = "redeem_completed"
+	// WishOrderChangedEvent 心愿单状态变更
+	WishOrderChangedEvent EventType = "wish_order_changed"
+	// GameReleasePublishedEvent 游戏版本发布
+	GameReleasePublishedEvent EventType = "game_release_published"
 )
 
 // EventHandler 事件处理函数

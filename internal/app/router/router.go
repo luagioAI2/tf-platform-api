@@ -40,6 +40,9 @@ type Router struct {
 	GameSnapshotAPI *api.GameSnapshotAPI
 	GameCoinAPI     *api.GameCoinAPI
 	TaskAPI         *api.TaskAPI
+	RedeemAPI       *api.RedeemAPI
+	WishAPI         *api.WishAPI
+	GameReleaseAPI  *api.GameReleaseAPI
 
 	// RDS 供中间件做黑名单/限流（可为 nil，表示降级运行）
 	RDS *redis.Client
@@ -225,9 +228,70 @@ func (a *Router) registerAPI(app *gin.Engine) {
 		sysGroup.POST("/info", a.SystemAPI.RuntimeInfo)
 	}
 
+	// ---- 兑换商城（需登录）----
+	redeemGroup := r.Group("/redeem").Use(middleware.JWTMiddleware(a.RDS))
+	{
+		// 商品管理（家长）
+		redeemGroup.POST("/item/create", a.RedeemAPI.CreateItem)
+		redeemGroup.POST("/item/update", a.RedeemAPI.UpdateItem)
+		redeemGroup.POST("/item/delete", a.RedeemAPI.DeleteItem)
+
+		// 列表与兑换
+		redeemGroup.POST("/list", a.RedeemAPI.ListItems)
+		redeemGroup.POST("/redeem", a.RedeemAPI.Redeem)
+
+		// 记录与处理
+		redeemGroup.POST("/records", a.RedeemAPI.ListRecords)
+		redeemGroup.POST("/fulfill", a.RedeemAPI.Fulfill)
+		redeemGroup.POST("/cancel", a.RedeemAPI.Cancel)
+		redeemGroup.POST("/stats", a.RedeemAPI.Stats)
+	}
+
+	// ---- 心愿商城（需登录）----
+	wishGroup := r.Group("/wish").Use(middleware.JWTMiddleware(a.RDS))
+	{
+		wishGroup.POST("/list", a.WishAPI.ListItems)
+		wishGroup.POST("/detail", a.WishAPI.Detail)
+
+		// 家长定价
+		wishGroup.POST("/set-offer", a.WishAPI.SetOffer)
+
+		// 孩子操作
+		wishGroup.POST("/wish", a.WishAPI.Wish)
+		wishGroup.POST("/redeem", a.WishAPI.Redeem)
+
+		// 家长推进
+		wishGroup.POST("/confirm", a.WishAPI.Confirm)
+		wishGroup.POST("/done", a.WishAPI.Done)
+		wishGroup.POST("/cancel", a.WishAPI.Cancel)
+
+		// 查询
+		wishGroup.POST("/orders", a.WishAPI.Orders)
+		wishGroup.POST("/order-detail", a.WishAPI.OrderDetail)
+		wishGroup.POST("/pending", a.WishAPI.Pending)
+
+		// 兑换码
+		wishGroup.POST("/redeem-code", a.WishAPI.RedeemCode)
+	}
+
+	// ---- 游戏分发 ----
+	{
+		// 目录与签名：**公开**（客户端装包前就要拿到，地址烧进 APK）
+		r.GET("/game/catalog", a.GameReleaseAPI.Catalog)
+		r.GET("/game/catalog.sig", a.GameReleaseAPI.CatalogSig)
+
+		// 需登录
+		gameGroup.POST("/update-check", middleware.JWTMiddleware(a.RDS), a.GameReleaseAPI.CheckUpdate)
+		gameGroup.POST("/download", middleware.JWTMiddleware(a.RDS), a.GameReleaseAPI.Download)
+	}
+
 	// ---- 后台（需后台令牌）----
 	admin := r.Group("/admin").Use(middleware.AdminMiddleware())
 	{
-		_ = admin // TODO: 后台接口在此注册
+		// 游戏版本发布
+		admin.POST("/game/release/publish", a.GameReleaseAPI.Publish)
+		admin.POST("/game/release/list", a.GameReleaseAPI.List)
+		admin.POST("/game/release/delete", a.GameReleaseAPI.Delete)
+		admin.POST("/game/release/self-check", a.GameReleaseAPI.SelfCheck)
 	}
 }

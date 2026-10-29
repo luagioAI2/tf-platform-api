@@ -198,8 +198,14 @@ func provideMysql() *gorm.DB {
 
 	// 种子数据：仅在开发/测试环境自动写入，避免污染生产
 	if !config.Get().ServiceSettings.IsProduction() {
-		if err := seed.EnsureGames(context.Background(), repository.NewGameRepository(db)); err != nil {
+		gameRepo := repository.NewGameRepository(db)
+		if err := seed.EnsureGames(context.Background(), gameRepo); err != nil {
 			logger.ZWarn("seed games failed", zap.Error(err))
+		}
+		// 心愿商品目录依赖游戏列表（盲盒池 + 游戏盒子都从它推导），
+		// 所以必须**在 EnsureGames 之后**执行
+		if err := seed.EnsureWishCatalog(context.Background(), repository.NewWishRepository(db), gameRepo); err != nil {
+			logger.ZWarn("seed wish catalog failed", zap.Error(err))
 		}
 	}
 

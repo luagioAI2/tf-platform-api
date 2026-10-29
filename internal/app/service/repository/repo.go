@@ -39,6 +39,19 @@ func Models() []interface{} {
 		new(entities.TaskInstance),
 		new(entities.CheckInRecord),
 		new(entities.CheckInProgress),
+
+		// 兑换商城
+		new(entities.RedeemItem),
+		new(entities.RedeemRecord),
+
+		// 心愿商城
+		new(entities.WishItem),
+		new(entities.WishOffer),
+		new(entities.WishOrder),
+		new(entities.WishCode),
+
+		// 游戏版本分发
+		new(entities.GameRelease),
 	}
 }
 

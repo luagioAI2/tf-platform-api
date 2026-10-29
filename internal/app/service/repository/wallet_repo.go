@@ -67,6 +67,45 @@ func (r *WalletRepository) GetOrCreateWallet(ctx context.Context, uid uint) (*en
 	return r.GetWallet(ctx, uid)
 }
 
+// GetOrCreateWalletWithTx 事务内查询钱包（不存在则创建）。
+//
+// ⚠️ 事务内必须用这个，不能用 GetOrCreateWallet：后者走外层 DB 句柄，
+// 会向连接池申请第二条连接（第一条已被事务占用），连接池打满时死锁。
+func (r *WalletRepository) GetOrCreateWalletWithTx(ctx context.Context, tx *gorm.DB, uid uint) (*entities.Wallet, error) {
+	var w entities.Wallet
+	err := tx.WithContext(ctx).Where("uid = ?", uid).First(&w).Error
+	if err == nil {
+		return &w, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+
+	w = entities.Wallet{UID: uid}
+	if err := tx.WithContext(ctx).
+		Clauses(clause.OnConflict{DoNothing: true}).
+		Create(&w).Error; err != nil {
+		return nil, err
+	}
+	// 并发下可能被别人先创建，同一事务内重新读一次
+	if err := tx.WithContext(ctx).Where("uid = ?", uid).First(&w).Error; err != nil {
+		return nil, err
+	}
+	return &w, nil
+}
+
+// SumIncomeSince 统计某币种某时间之后的**收入**合计（delta > 0）。
+//
+// 用途：「大约要攒几天」——只算收入，不算支出。
+// 把花掉的也算进来会得出一个永远攒不到的假数。
+func (r *WalletRepository) SumIncomeSince(ctx context.Context, uid uint, currency entities.Currency, since int64) (int64, error) {
+	var sum int64
+	err := r.DB.WithContext(ctx).Model(&entities.LedgerEntry{}).
+		Where("uid = ? AND currency = ? AND delta > 0 AND created_at >= ?", uid, currency, since).
+		Select("COALESCE(SUM(delta), 0)").Scan(&sum).Error
+	return sum, err
+}
+
 // BalanceChange 余额变动参数
 type BalanceChange struct {
 	UID      uint

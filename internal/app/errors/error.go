@@ -1,6 +1,8 @@
 package errors
 
 import (
+	stderrors "errors"
+
 	"tf-api/internal/app/i18n"
 	"tf-api/pkg/logger"
 
@@ -160,6 +162,30 @@ func TruncateError(err error, maxSize int) string {
 func Is(err error, code int) bool {
 	if appErr, ok := err.(*Error); ok {
 		return appErr.Code == code
+	}
+	return false
+}
+
+// IsBizError 判断错误是否为「已定义的业务错误」。
+//
+// 判据：错误链里能找到 *Error 且带**具体错误码**（不是通用的 ERROR=500）。
+//
+// 用途：Service 里「事务失败」时要区分两种情况：
+//
+//	if apperrors.IsBizError(err) {
+//	    return nil, err          // 业务错误（余额不足/商品下架）→ 原样返回给用户
+//	}
+//	return nil, apperrors.WithError(err)  // 系统错误（DB 挂了）→ 包一层并记日志
+//
+// 不做这个区分的话，所有错误都会被记成 ERROR 级日志 +
+// 返回「系统错误」，用户看到的是「服务器开小差了」而不是「余额不足」。
+func IsBizError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var appErr *Error
+	if stderrors.As(err, &appErr) {
+		return appErr.Code != 0 && appErr.Code != ERROR
 	}
 	return false
 }
