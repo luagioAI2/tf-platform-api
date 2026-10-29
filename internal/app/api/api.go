@@ -19,4 +19,5 @@ var APISet = wire.NewSet(
 	RedeemAPISet,
 	WishAPISet,
 	GameReleaseAPISet,
+	MerchantAPISet,
 )

@@ -132,6 +132,13 @@ func BuildInjector(info buildinfo.Info) (*Injector, func(), error) {
 	gameReleaseAPI := &api.GameReleaseAPI{
 		Srv: gameReleaseService,
 	}
+	merchantRepository := &repository.MerchantRepository{
+		DB: db,
+	}
+	merchantService := service.ProvideMerchantService(merchantRepository, userRepository, eventService)
+	merchantAPI := &api.MerchantAPI{
+		Srv: merchantService,
+	}
 	rateLimiter := provideRateLimiter(client)
 	routerRouter := &router.Router{
 		SystemAPI:       systemAPI,
@@ -146,6 +153,7 @@ func BuildInjector(info buildinfo.Info) (*Injector, func(), error) {
 		RedeemAPI:       redeemAPI,
 		WishAPI:         wishAPI,
 		GameReleaseAPI:  gameReleaseAPI,
+		MerchantAPI:     merchantAPI,
 		RDS:             client,
 		Limiter:         rateLimiter,
 	}

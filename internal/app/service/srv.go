@@ -32,6 +32,7 @@ var SrvSet = wire.NewSet(
 	RedeemServiceSet,
 	WishServiceSet,
 	GameReleaseServiceSet,
+	MerchantServiceSet,
 
 	// 异步门面（必须最后，它依赖上面多个 Service）
 	AsyncServiceManagerSet,

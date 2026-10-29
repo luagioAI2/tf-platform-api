@@ -33,6 +33,8 @@ const (
 	WishOrderChangedEvent EventType = "wish_order_changed"
 	// GameReleasePublishedEvent 游戏版本发布
 	GameReleasePublishedEvent EventType = "game_release_published"
+	// MerchantReviewedEvent 招商审核完成
+	MerchantReviewedEvent EventType = "merchant_reviewed"
 )
 
 // EventHandler 事件处理函数

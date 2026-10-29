@@ -52,6 +52,9 @@ func Models() []interface{} {
 
 		// 游戏版本分发
 		new(entities.GameRelease),
+
+		// 招商
+		new(entities.MerchantApplication),
 	}
 }
 

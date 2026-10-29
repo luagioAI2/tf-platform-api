@@ -113,3 +113,7 @@ game-release-duplicate: "该版本已经发布过了"
 game-package-too-large: "游戏包超出体积上限"
 game-sha256-invalid: "SHA-256 格式不合法（需要 64 位小写十六进制）"
 game-catalog-sign-fail: "游戏目录签名失败"
+# ===== 招商 =====
+merchant-application-not-exist: "招商申请不存在"
+merchant-already-reviewed: "该申请已经审核过了"
+merchant-admin-url-required: "通过审核时必须填后台地址，否则对方拿不到入口"

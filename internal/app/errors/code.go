@@ -126,6 +126,15 @@ const (
 	GameCatalogSignFail  = 10080501 // 目录签名失败
 )
 
+// ============================ 招商域 10 10 xx xx ============================
+//
+// ⚠️ 后台/运维域已占用 1009xx，所以招商用 1010xx。
+const (
+	MerchantApplicationNotExist = 10100101 // 招商申请不存在
+	MerchantAlreadyReviewed     = 10100201 // 该申请已审核过
+	MerchantAdminURLRequired    = 10100301 // 通过时必须给后台地址
+)
+
 // ============================ 文件域 10 03 xx xx ============================
 const (
 	FileNotAllowed     = 10030101 // 文件类型不允许
@@ -237,6 +246,10 @@ var ErrCodeMsg = map[int]string{
 	GamePackageTooLarge:  "game-package-too-large",
 	GameSHA256Invalid:    "game-sha256-invalid",
 	GameCatalogSignFail:  "game-catalog-sign-fail",
+
+	MerchantApplicationNotExist: "merchant-application-not-exist",
+	MerchantAlreadyReviewed:     "merchant-already-reviewed",
+	MerchantAdminURLRequired:    "merchant-admin-url-required",
 
 	FileNotAllowed:     "file-not-allowed",
 	FileTooLarge:       "file-too-large",

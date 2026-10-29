@@ -843,6 +843,11 @@ func (s *WishService) ListOrders(ctx context.Context, uid uint, req *entities.Li
 //	wished（还没定价）    → 定价，或者这次先不换
 //	committed/confirmed → 去外链买，或者收尾
 //
+// `action_count` 用的是 **`NeedsParentAction`**（家长口径，**含**已交付的
+// 数字商品 —— 游戏装了但单子没收尾）。**不是** `ChildPending`
+// （孩子那屏的徽标，不含已交付的）。两个数故意不等，见
+// `entities/wish_pending.go`。
+//
 // ## ★「待回应」的判据**不是** `status == wished`
 //
 // 家长定价之后，那条单子**仍然停在 `wished`** —— 它要等孩子真的来兑换，

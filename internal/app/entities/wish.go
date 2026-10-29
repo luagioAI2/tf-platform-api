@@ -11,22 +11,60 @@ package entities
 //     10 个「已兑换」，家长每个都得去淘宝买一遍。
 //  3. **盲盒先算池子再扣券** —— 池子空了要直接拒绝，不能先扣再发现没得开。
 
-// WishKind 商品分类
+// WishKind 分类
+//
+// ⚠️ 这几类共用一个 `Kind` 字段而不是拆成两张表，是因为它们在列表里
+// 要**混排**（用户要求：游戏盲盒优先显示）。拆表会让列表排序变成归并逻辑。
+//
+// 2026-10-29 用户要求：「收藏换成其他，前面再加美食，出行。」
+// ⇒ 新增 `food` / `outing` 两档；`collectible` 的**显示名**从「收藏」改成
+// 「其他」，但**内部名不动** —— 改名会让 `wish_item.kind` 的存量数据
+// 和测试全部对不上，而界面上根本没机会看到英文名。
+//
+// ⚠️ 显示名（「美食」「出行」「其他」）在**客户端**的 `WISH_KIND_META` 里，
+// 服务端只认内部名。别在这里造一份 label 表 —— 那就是「同一个事实存两份」。
 type WishKind string
 
 const (
-	WishKindBlindbox    WishKind = "blindbox"    // 盲盒（数字，开游戏）
-	WishKindGamebox     WishKind = "gamebox"     // 游戏盒子（数字，指定游戏）
-	WishKindToy         WishKind = "toy"         // 玩具（实物）
-	WishKindStudy       WishKind = "study"       // 学习（实物）
-	WishKindCollectible WishKind = "collectible" // 收藏（实物）
+	WishKindBlindbox WishKind = "blindbox" // 盲盒（数字，开游戏）
+	WishKindGamebox  WishKind = "gamebox"  // 游戏盒子（数字，指定游戏）
+	WishKindToy      WishKind = "toy"      // 玩具（实物）
+	WishKindStudy    WishKind = "study"    // 学习（实物）
+	// WishKindFood 美食（实物）。2026-10-29 新增
+	WishKindFood WishKind = "food"
+	// WishKindOuting 出行（实物）。2026-10-29 新增
+	WishKindOuting WishKind = "outing"
+	// WishKindCollectible 其他（实物）。
+	//
+	// 内部名保留 `collectible`（历史数据用这个），**显示名是「其他」**。
+	WishKindCollectible WishKind = "collectible"
 )
+
+// 全部合法分类 —— 新增一档时**只改这一处**，
+// `IsValid` / 校验 / 白名单都从这里取。
+var allWishKinds = []WishKind{
+	WishKindBlindbox,
+	WishKindGamebox,
+	WishKindToy,
+	WishKindStudy,
+	WishKindFood,
+	WishKindOuting,
+	WishKindCollectible,
+}
+
+// AllWishKinds 返回全部合法分类（副本，调用方改了不影响内部）
+func AllWishKinds() []WishKind {
+	out := make([]WishKind, len(allWishKinds))
+	copy(out, allWishKinds)
+	return out
+}
 
 // IsValid 分类是否合法
 func (k WishKind) IsValid() bool {
-	switch k {
-	case WishKindBlindbox, WishKindGamebox, WishKindToy, WishKindStudy, WishKindCollectible:
-		return true
+	for _, v := range allWishKinds {
+		if k == v {
+			return true
+		}
 	}
 	return false
 }
@@ -36,6 +74,9 @@ func (k WishKind) IsValid() bool {
 // ⚠️ 判据**不是** kind：gamebox 装包失败会走取消退回，
 // 那种单子本来就不该显示成「已交付」。真正判据是
 // `WishOrder.OpenedGameID != ""`（装包成功才写）。
+//
+// 这个方法是「商品**类别**上是不是数字」，用于**兑换前**的校验收货信息；
+// 交付与否看 `OpenedGameID`。
 func (k WishKind) IsDigital() bool {
 	return k == WishKindBlindbox || k == WishKindGamebox
 }

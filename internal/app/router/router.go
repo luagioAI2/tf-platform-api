@@ -43,6 +43,7 @@ type Router struct {
 	RedeemAPI       *api.RedeemAPI
 	WishAPI         *api.WishAPI
 	GameReleaseAPI  *api.GameReleaseAPI
+	MerchantAPI     *api.MerchantAPI
 
 	// RDS 供中间件做黑名单/限流（可为 nil，表示降级运行）
 	RDS *redis.Client
@@ -287,6 +288,15 @@ func (a *Router) registerAPI(app *gin.Engine) {
 		gameGroup.POST("/download", middleware.JWTMiddleware(a.RDS), a.GameReleaseAPI.Download)
 	}
 
+	// ---- 招商（需登录）----
+	merchantGroup := r.Group("/merchant").Use(middleware.JWTMiddleware(a.RDS))
+	{
+		// 客户端只做「提交」那一半；审核与 admin_url 由后台回填
+		merchantGroup.POST("/apply", a.MerchantAPI.Apply)
+		merchantGroup.POST("/my", a.MerchantAPI.My)
+		merchantGroup.POST("/invite-stats", a.MerchantAPI.InviteStats)
+	}
+
 	// ---- 后台（需后台令牌）----
 	admin := r.Group("/admin").Use(middleware.AdminMiddleware())
 	{
@@ -295,5 +305,10 @@ func (a *Router) registerAPI(app *gin.Engine) {
 		admin.POST("/game/release/list", a.GameReleaseAPI.List)
 		admin.POST("/game/release/delete", a.GameReleaseAPI.Delete)
 		admin.POST("/game/release/self-check", a.GameReleaseAPI.SelfCheck)
+
+		// 招商审核
+		admin.POST("/merchant/list", a.MerchantAPI.List)
+		admin.POST("/merchant/review", a.MerchantAPI.Review)
+		admin.POST("/merchant/pending-count", a.MerchantAPI.PendingCount)
 	}
 }

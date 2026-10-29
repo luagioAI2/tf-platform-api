@@ -42,4 +42,7 @@ var RepoSet = wire.NewSet(
 
 	// 游戏版本分发
 	GameReleaseRepositorySet,
+
+	// 招商
+	MerchantRepositorySet,
 )

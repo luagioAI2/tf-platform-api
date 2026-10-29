@@ -164,16 +164,16 @@ func (s *WishService) History(ctx context.Context, uid uint, limit int) ([]*enti
 			tag = "已取消 · 已退回"
 		}
 
-		// ⚠️ 已交付的数字商品**不算**待兑现。
+		// ⚠️ 用 `ChildPending`，**不是** `NeedsParentAction`。
 		//
-		// 它确实还停在 `committed`（等家长点「完成这一单」），
-		// 但东西孩子已经拿到手了 —— 计数把它算进去的话，记录页会出现
-		// 「红点 1 + 绿标签 已放进游戏柜」这种自相矛盾的一屏。
-		// 家长那边的收尾提示在心愿页顶部，不靠这个数。
+		// 已经交付的数字商品不算待兑现：它确实还停在 `committed`（等家长点
+		// 「完成这一单」），但东西孩子已经拿到手了 —— 计数把它算进去的话，
+		// 记录页会出现「红点 1 + 绿标签 已放进游戏柜」这种自相矛盾的一屏
+		// （前端截图走查抓到过）。家长那边的收尾提示在心愿页顶部，不靠这个数。
 		//
-		// 判据 `!delivered` 与前端 `redeemHistory` 的 `&& !o.openedGameId` 一致。
-		pending := (o.Status == entities.WishStatusCommitted ||
-			o.Status == entities.WishStatusConfirmed) && !delivered
+		// 所以同一个单子：心愿页说「有 1 单在等爸妈处理」，这里没有徽标 ——
+		// **故意的**，两个口径都写在 `entities/wish_pending.go` 里了。
+		pending := entities.ChildPending(o.Status, o.OpenedGameID)
 
 		var buyURL, buyLabel string
 		if it, err := s.Repo.GetItem(ctx, o.ItemID); err == nil && it != nil {

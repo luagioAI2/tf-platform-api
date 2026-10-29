@@ -106,6 +106,40 @@ var PhysicalWishes = []*entities.WishItem{
 		BuyLabel:    "去淘宝购买",
 		SortOrder:   24,
 	},
+	// ---- 2026-10-29 新增两档分类的样例（用户要求「前面再加美食，出行」）----
+	//
+	// 没有这两条的话，心愿页和兑换页会各多出一个**点进去是空的**分类按钮
+	// （chips 是从分类表生成的）。和上面几条一样是样例数据，接商家时整块替换。
+	{
+		ItemID:      "wish-cake",
+		Kind:        entities.WishKindFood,
+		Name:        "生日蛋糕",
+		Emoji:       "🍰",
+		Tint:        "berry",
+		PartnerName: "甜心烘焙",
+		PriceCents:  12800,
+		AgeRange:    entities.JSONIntArray{3, 99},
+		Note:        "6 寸 · 可以写名字",
+		Notice:      "要提前一天预订，爸妈下单时记得选日期。",
+		BuyURL:      taobaoSearch("生日蛋糕 6寸 儿童"),
+		BuyLabel:    "去淘宝预订",
+		SortOrder:   25,
+	},
+	{
+		ItemID:      "wish-zoo",
+		Kind:        entities.WishKindOuting,
+		Name:        "动物园一日游",
+		Emoji:       "🎡",
+		Tint:        "grass",
+		PartnerName: "城市动物园",
+		PriceCents:  12000,
+		AgeRange:    entities.JSONIntArray{3, 12},
+		Note:        "含 1 大 1 小两张门票",
+		Notice:      "出行类按当天预约情况走，去之前先确认场次。",
+		BuyURL:      taobaoSearch("动物园 门票 亲子"),
+		BuyLabel:    "去淘宝看看",
+		SortOrder:   26,
+	},
 }
 
 // EnsureWishCatalog 幂等地写入心愿商城商品目录。
