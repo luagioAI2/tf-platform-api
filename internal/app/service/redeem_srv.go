@@ -174,7 +174,12 @@ func (s *RedeemService) DeleteItem(ctx context.Context, uid uint, itemID string)
 	if item == nil {
 		return apperrors.WithCode(apperrors.RedeemItemNotExist)
 	}
-	return apperrors.WithError(s.Repo.DeleteItem(ctx, uid, itemID))
+	// 同 task_srv.DeleteTask：`WithError(nil)` 是非 nil 的 500，
+	// 直接 return 会让「删成功」也回「系统错误」。
+	if err := s.Repo.DeleteItem(ctx, uid, itemID); err != nil {
+		return apperrors.WithError(err)
+	}
+	return nil
 }
 
 // ============================ 商品列表（孩子/家长） ============================

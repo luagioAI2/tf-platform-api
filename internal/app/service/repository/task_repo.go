@@ -75,11 +75,16 @@ func (r *TaskRepository) UpdateTask(ctx context.Context, uid, taskID uint, field
 		Updates(fields).Error
 }
 
-// DeleteTask 删除任务（软删除）
+// DeleteTask 删除任务（软删除 = 归档）
+//
+// 不能真 DELETE：`task_instance.task_id` 有外键，任务一旦被孩子做过就删不掉，
+// 报的还是「系统错误」（500），看不出是外键拦的。而且历史实例要留着算统计。
+// 所以这里改成置 `archived = true` —— `ListTasks` 本来就带 `includeArchived` 参数，
+// 说明归档才是原设计的「删除」。
 func (r *TaskRepository) DeleteTask(ctx context.Context, uid, taskID uint) error {
-	return r.DB.WithContext(ctx).
+	return r.DB.WithContext(ctx).Model(&entities.Task{}).
 		Where("id = ? AND uid = ?", taskID, uid).
-		Delete(&entities.Task{}).Error
+		Update("archived", true).Error
 }
 
 // ============================ 任务实例 ============================

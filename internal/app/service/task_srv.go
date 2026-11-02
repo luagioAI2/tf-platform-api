@@ -162,7 +162,13 @@ func (s *TaskService) DeleteTask(ctx context.Context, uid, taskID uint) error {
 	if task == nil {
 		return apperrors.WithCode(apperrors.TaskNotExist)
 	}
-	return apperrors.WithError(s.TaskRepo.DeleteTask(ctx, uid, taskID))
+	// ⚠️ 不能写 `return apperrors.WithError(repo.DeleteTask(...))`：
+	// `WithError(nil)` 返回的是**非 nil** 的 500 错误对象（errors/error.go:127），
+	// 于是「删成功」也会回 500 —— 数据已经删了，界面却报「系统错误」。
+	if err := s.TaskRepo.DeleteTask(ctx, uid, taskID); err != nil {
+		return apperrors.WithError(err)
+	}
+	return nil
 }
 
 // ListTasks 列出任务

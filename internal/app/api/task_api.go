@@ -90,12 +90,18 @@ func (c *TaskAPI) DeleteTask(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	var req entities.TimerReq
+	// 删除的是**任务定义**，所以参数是 task_id。
+	// 2026-11-02 之前这里错用了 entities.TimerReq（字段名 instance_id），
+	// 传 task_id 会报「instance_id为必填字段」，传 instance_id 又会去删同号的任务
+	// —— 一个从没被客户端调过的接口，两种写法都是错的。
+	var req struct {
+		TaskID uint `json:"task_id" binding:"required,min=1"`
+	}
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		ginx.RespErr(ctx, err)
 		return
 	}
-	if err := c.Srv.DeleteTask(ctx.Request.Context(), uid, req.InstanceID); err != nil {
+	if err := c.Srv.DeleteTask(ctx.Request.Context(), uid, req.TaskID); err != nil {
 		ginx.RespErr(ctx, err)
 		return
 	}
