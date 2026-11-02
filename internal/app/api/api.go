@@ -16,6 +16,7 @@ var APISet = wire.NewSet(
 	GameSnapshotAPISet,
 	GameCoinAPISet,
 	TaskAPISet,
+	FarmAPISet,
 	RedeemAPISet,
 	WishAPISet,
 	GameReleaseAPISet,

@@ -20,6 +20,8 @@ type CreateTaskReq struct {
 	CheckInTargetCount int             `json:"check_in_target_count" binding:"omitempty,min=0,max=365"`
 	RemindAt           string          `json:"remind_at" binding:"omitempty,len=5"`
 	Sort               int             `json:"sort"`
+	// Extra 客户端自定义字段（见 entities.Task.Extra）
+	Extra string `json:"extra" binding:"omitempty,max=512"`
 }
 
 // UpdateTaskReq 更新任务（所有字段可选）
@@ -35,6 +37,8 @@ type UpdateTaskReq struct {
 	RemindAt           *string       `json:"remind_at" binding:"omitempty,max=8"`
 	Archived           *bool         `json:"archived"`
 	Sort               *int          `json:"sort"`
+	// Extra 客户端自定义字段；传空串表示清空
+	Extra *string `json:"extra" binding:"omitempty,max=512"`
 }
 
 // SubmitTaskReq 提交任务

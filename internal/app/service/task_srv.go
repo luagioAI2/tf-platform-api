@@ -80,6 +80,7 @@ func (s *TaskService) CreateTask(ctx context.Context, uid uint, req *entities.Cr
 		CheckInTargetCount: req.CheckInTargetCount,
 		RemindAt:           req.RemindAt,
 		Sort:               req.Sort,
+		Extra:              req.Extra,
 	}
 	if err := s.TaskRepo.CreateTask(ctx, task); err != nil {
 		return nil, apperrors.WithError(err)
@@ -145,6 +146,9 @@ func (s *TaskService) UpdateTask(ctx context.Context, uid, taskID uint, req *ent
 	}
 	if req.Sort != nil {
 		fields["sort"] = *req.Sort
+	}
+	if req.Extra != nil {
+		fields["extra_json"] = *req.Extra
 	}
 
 	if err := s.TaskRepo.UpdateTask(ctx, uid, taskID, fields); err != nil {

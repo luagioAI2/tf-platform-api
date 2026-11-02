@@ -79,6 +79,13 @@ const (
 	SnapshotQuotaExceeded = 10041101 // 快照数量超出配额
 )
 
+// ============================ 农场域 10 11 xx xx ============================
+const (
+	FarmStateTooLarge  = 10110101 // 农场状态过大
+	FarmStateConflict  = 10110201 // 农场状态版本冲突（多设备）
+	FarmLedgerBadClaim = 10110301 // 随农场提交的账本条目不合法
+)
+
 // ============================ 任务域 10 05 xx xx ============================
 const (
 	TaskNotExist         = 10050101 // 任务不存在
@@ -211,6 +218,10 @@ var ErrCodeMsg = map[int]string{
 	GameCoinInsufficient:  "game-coin-insufficient",
 	SnapshotNotExist:      "snapshot-not-exist",
 	SnapshotQuotaExceeded: "snapshot-quota-exceeded",
+
+	FarmStateTooLarge:  "farm-state-too-large",
+	FarmStateConflict:  "farm-state-conflict",
+	FarmLedgerBadClaim: "farm-ledger-bad-claim",
 
 	TaskNotExist:         "task-not-exist",
 	TaskInstanceNotExist: "task-instance-not-exist",

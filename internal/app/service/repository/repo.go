@@ -40,6 +40,9 @@ func Models() []interface{} {
 		new(entities.CheckInRecord),
 		new(entities.CheckInProgress),
 
+		// 农场（整块 JSON + 乐观锁）
+		new(entities.FarmState),
+
 		// 兑换商城
 		new(entities.RedeemItem),
 		new(entities.RedeemRecord),

@@ -34,6 +34,9 @@ var RepoSet = wire.NewSet(
 	TaskRepositorySet,
 	CheckInRepositorySet,
 
+	// 农场
+	FarmStateRepositorySet,
+
 	// 兑换商城
 	RedeemRepositorySet,
 

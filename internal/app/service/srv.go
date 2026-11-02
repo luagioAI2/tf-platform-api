@@ -28,6 +28,9 @@ var SrvSet = wire.NewSet(
 	TaskServiceSet,
 	CheckInServiceSet,
 
+	// 农场
+	FarmServiceSet,
+
 	// 商城与游戏分发
 	RedeemServiceSet,
 	WishServiceSet,

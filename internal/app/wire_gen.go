@@ -110,6 +110,13 @@ func BuildInjector(info buildinfo.Info) (*Injector, func(), error) {
 		Srv:      taskService,
 		CheckSrv: checkInService,
 	}
+	farmStateRepository := &repository.FarmStateRepository{
+		DB: db,
+	}
+	farmService := service.ProvideFarmService(farmStateRepository, walletRepository)
+	farmAPI := &api.FarmAPI{
+		Srv: farmService,
+	}
 	redeemRepository := &repository.RedeemRepository{
 		DB: db,
 	}
@@ -150,6 +157,7 @@ func BuildInjector(info buildinfo.Info) (*Injector, func(), error) {
 		GameSnapshotAPI: gameSnapshotAPI,
 		GameCoinAPI:     gameCoinAPI,
 		TaskAPI:         taskAPI,
+		FarmAPI:         farmAPI,
 		RedeemAPI:       redeemAPI,
 		WishAPI:         wishAPI,
 		GameReleaseAPI:  gameReleaseAPI,

@@ -40,6 +40,7 @@ type Router struct {
 	GameSnapshotAPI *api.GameSnapshotAPI
 	GameCoinAPI     *api.GameCoinAPI
 	TaskAPI         *api.TaskAPI
+	FarmAPI         *api.FarmAPI
 	RedeemAPI       *api.RedeemAPI
 	WishAPI         *api.WishAPI
 	GameReleaseAPI  *api.GameReleaseAPI
@@ -227,6 +228,16 @@ func (a *Router) registerAPI(app *gin.Engine) {
 	sysGroup := r.Group("/system").Use(middleware.JWTMiddleware(a.RDS))
 	{
 		sysGroup.POST("/info", a.SystemAPI.RuntimeInfo)
+	}
+
+	// ---- 农场（需登录）----
+	//
+	// 整块读写。客户端把农场状态（地块/动物/背包/行情/世界日）序列化成 JSON，
+	// 服务端只存不解释；币变动随状态一起提交，同一个事务里入账。
+	farmGroup := r.Group("/farm").Use(middleware.JWTMiddleware(a.RDS))
+	{
+		farmGroup.POST("/state/get", a.FarmAPI.Get)
+		farmGroup.POST("/state/save", a.FarmAPI.Save)
 	}
 
 	// ---- 兑换商城（需登录）----

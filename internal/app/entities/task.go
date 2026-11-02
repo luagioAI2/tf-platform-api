@@ -107,6 +107,17 @@ type Task struct {
 
 	// Sort 排序权重
 	Sort int `gorm:"column:sort;default:0" json:"sort"`
+
+	// Extra 客户端自定义字段（JSON 字符串）。
+	//
+	// 用来存**服务端不解释、但客户端要保留**的任务级设置 ——
+	// 目前是签到阶梯倍率 / 连击加成 / 连击封顶（`checkInTierRatio` 等）。
+	// 服务端既不校验内容也不使用，只负责原样存回。
+	//
+	// ★ 为什么不直接加三个列：这些是**玩法参数**，还会变（2026-10 加过一轮）。
+	//   每加一个参数就改表 + 改 DTO + 改客户端映射，而漏一处就是
+	//   「家长改了不生效」—— 这种失效**不报错**，只有家长自己发现。
+	Extra string `gorm:"column:extra_json;type:text" json:"extra"`
 }
 
 func (Task) TableName() string { return "task" }
