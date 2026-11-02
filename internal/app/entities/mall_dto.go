@@ -193,6 +193,12 @@ type WishHandleReq struct {
 	Reason string `json:"reason" binding:"omitempty,max=255"`
 	// TrackingNo 快递单号（done 时可填）
 	TrackingNo string `json:"tracking_no" binding:"omitempty,max=64"`
+	// Ship 收货信息（**家长补地址用**，confirm / done 时可带）
+	//
+	// 兑换那一刻孩子填不了地址（客户端没有表单，spec §9 的家长表单还没做），
+	// 所以地址的实际入口在家长这一侧。带了就存（`purge_after` 90 天），
+	// 不带就**一个字都不动** —— 别把已有的地址清空。
+	Ship *WishShipInfo `json:"ship"`
 }
 
 // WishSetOfferReq 家长定价/开放

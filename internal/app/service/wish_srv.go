@@ -5,6 +5,7 @@ import (
 	crand "crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -588,10 +589,8 @@ func (s *WishService) Redeem(ctx context.Context, uid uint, req *entities.WishRe
 			"opened_game_id": openedGameID,
 			"committed_at":   now,
 		}
-		if req.Ship != nil {
-			ship := *req.Ship
-			ship.PurgeAfter = time.Now().AddDate(0, 0, 90).Unix()
-			fields["ship"] = ship
+		if v, ok := shipColumn(req.Ship); ok {
+			fields["ship"] = v
 		}
 
 		rows, err := s.Repo.UpdateOrderCAS(ctx, tx, uid, order.OrderID, order.Status, fields)
@@ -746,6 +745,33 @@ func (s *WishService) Cancel(ctx context.Context, uid uint, req *entities.WishHa
 	return s.OrderView(ctx, uid, req.OrderID, false)
 }
 
+// shipColumn 把客户端送来的收货信息变成 `ship` 列的值（**JSON 文本**）。
+//
+// 两件事一起做，所以只有一份实现（`Redeem` 和 `transition` 共用）：
+//   - **空地址返回 false**：家长只点了「已经买好了」、没填地址时，
+//     调用方据此「一个字都不动」，不会把兑换时存过的地址覆盖成空；
+//   - **带 `purge_after`（90 天）**：地址是 PII，留着只为发货 / 售后，
+//     到期由服务端抹掉。客户端不该（也不能）自己算这个时间。
+//
+// ⚠️ 为什么返回**字符串**而不是结构体：`ship` 这一列在模型上写的是
+// `gorm:"serializer:json"`，但 `UpdateOrderCAS` 是 **map 更新**，
+// serializer 只作用于模型字段 —— map 里的值会被直接丢给数据库驱动，
+// 于是报 `sql: converting argument $2 type: unsupported type
+// entities.WishShipInfo, a struct`（HTTP 500，前端只会说「保存失败」）。
+// 存文本之后，读的时候 serializer 照样把它反序列化回结构体，两边是通的。
+func shipColumn(ship *entities.WishShipInfo) (string, bool) {
+	if ship == nil || strings.TrimSpace(ship.Address) == "" {
+		return "", false
+	}
+	s := *ship
+	s.PurgeAfter = time.Now().AddDate(0, 0, 90).Unix()
+	b, err := json.Marshal(s)
+	if err != nil {
+		return "", false
+	}
+	return string(b), true
+}
+
 // transition 通用状态推进一步
 func (s *WishService) transition(
 	ctx context.Context, uid uint, req *entities.WishHandleReq,
@@ -761,6 +787,17 @@ func (s *WishService) transition(
 		fields["confirmed_at"] = time.Now().Unix()
 	case entities.WishStatusDone:
 		fields["done_at"] = time.Now().Unix()
+	}
+	/*
+	 * 家长补的收货信息（confirm / done 都收，`Cancel` 不走这里）。
+	 *
+	 * ⚠️ 这是地址的**唯一入口**：兑换那一刻客户端没有表单
+	 * （spec §9 的家长表单是 P3），`Redeem` 那条路上永远是 nil。
+	 * 以前这里没有它 ⇒ `wishDone(orderId, { ship })` 在在线版**上传不了地址**，
+	 * 家长填了也白填、还不报错。
+	 */
+	if v, ok := shipColumn(req.Ship); ok {
+		fields["ship"] = v
 	}
 	for k, v := range extra {
 		fields[k] = v
