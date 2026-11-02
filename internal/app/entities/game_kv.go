@@ -146,7 +146,9 @@ func (GameWallet) TableName() string { return "game_wallet" }
 type GameKvReadResp struct {
 	Key   string      `json:"key"`
 	Value interface{} `json:"value"`
-	// Version 当前版本号（不存在时为 0）
+	// Version 当前版本号。**0 只表示「这一行不存在」**；
+	// 写过就 ≥ 1（第一笔写落 1，之后每次写 +1）。
+	// 客户端把 0 当「我手里没有令牌」的哨兵 ⇒ 服务端按无锁 upsert 处理。
 	Version int64 `json:"version"`
 	// Exists 是否存过（false 时 value 为 null）
 	Exists bool `json:"exists"`

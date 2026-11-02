@@ -455,3 +455,52 @@ Where(`kv_key NOT LIKE ? ESCAPE '\'`, `\_\_%`)
 
 **教训**：`if key != ""` 这种守卫，写在**拼好之后**是错的 —— 拼出来的常量
 永远非空。守卫要写在**拼之前**。
+
+### 7.3 软删的尸体把 upsert 吞掉 ⇒ 写成功但谁也读不出来（已修复）
+
+**现象**：卸载游戏（`/game/kv/delete`）→ 重装 → 插件第一次 `storage.set`
+返回 `code: 200` 且 `version` 往上走，但紧接着 `get` / `list` 永远返回空。
+客户端毫不知情，换台设备进度全丢。
+
+**原因**：`BaseModel` 带 `gorm.DeletedAt`，`Delete` / `DeleteGame` 默认是**软删**
+（只打一个 `deleted_at`）；而 `Get` / `List` 都会自动追加 `deleted_at IS NULL`。
+重装后的第一笔写没有版本令牌（`expected_version = 0`）⇒ 走无锁 upsert
+⇒ 命中那条软删的行 ⇒ `DoUpdates` 只改 `value` / `size` / `version`，
+`deleted_at` 原样留着 ⇒ 这一行对所有读路径永久不可见。
+
+**修复**（两处，缺一不可）：
+
+- `Delete` / `DeleteGame` 改 `Unscoped()` **硬删** —— 「卸载」的语义就是数据没了；
+  软删只会留下一条读不到、却仍占着唯一索引 `(uid, game_id, kv_key)` 的尸体。
+- upsert 的 `DoUpdates` 加 `"deleted_at": nil` —— 历史数据 / 后台标记仍可能留下
+  软删的行，只要 upsert 不清它，那一行就永远写不进去。
+
+回归用例：`TestKvReviveAfterUninstall`、`TestKvUpsertRevivesSoftDeletedRow`
+（后者变异验证过：去掉 `deleted_at: nil` 就红）。
+
+**顺带修掉同一处的哑巴 bug**：`DoUpdates` 原来写的是
+`"updated_at": gorm.Expr("updated_at")` —— 把列赋给它自己，等于**永远不刷新**。
+upsert 走原生 clause、不经过 GORM 钩子，必须手写 `time.Now().Unix()`。
+
+**教训**：「软删」和「upsert」放在一起，就是这个形状：
+写成功、版本号在涨、读出来是空、没有任何报错。
+凡是 upsert 命中软删过的行，都要问一句 `deleted_at` 谁来清。
+
+### 7.4 新行落 `version: 0` ⇒ 前两次写没有冲突检测（已修复）
+
+**现象**：客户端第一笔写拿到的 `version` 是 0，第二笔写仍然不带令牌。
+
+**原因**：`Version` 是 `default:0`，GORM 会把结构体里的 0 原样写进库；
+而无锁 upsert 的插入路径没有「从 1 起算」的约束。客户端把
+`expected_version = 0` 当作「我手里没有令牌」的哨兵 ⇒ 缓存到 0 ⇒
+下一次写**又走无锁路径** ⇒ 一个键的前两次写之间完全没有冲突检测，
+两台设备互盖一句话都不报。
+
+**修复**：插入前 `if kv.Version < 1 { kv.Version = 1 }`
+（回档路径 `game_snapshot_srv` 本来就传 `toVersion = 0 + 1`，与它对齐）。
+现在 `version: 0` 只有一个含义：**这一行不存在**。
+
+回归用例：`TestKvVersionStartsAtOne`、`TestKvNoLockUpsertStillBumps`。
+
+**教训**：一个字段同时表示「不存在」和「存在但值是 0」时，任何拿它当哨兵的
+协议都会静默失效。哨兵值必须在写入侧就排除掉。

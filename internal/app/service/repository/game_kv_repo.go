@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"tf-api/internal/app/entities"
 
@@ -124,15 +125,41 @@ func (r *GameKvRepository) PutWithTx(ctx context.Context, tx *gorm.DB, kv *entit
 	}
 
 	// 无锁路径：直接 upsert，version 自增
+	//
+	// ⚠️ 插入时版本必须从 **1** 起算（实体上 `default:0`，GORM 会把结构体里的 0
+	// 原样写进 version）。0 在这个协议里是**哨兵**，含义是「这一行还不存在 /
+	// 我手里没有令牌」，客户端拿 0 当 `expected_version` 就走这条无锁路径。
+	// 落 0 的后果：写完这一行，客户端缓存到的还是 0 ⇒ 下一次写**又走无锁路径**
+	// ⇒ 一个键的前两次写完全没有冲突检测，两台设备互盖一句话都不报。
+	// 实测踩过：探针里第一笔写落 0、第二笔仍走无锁，冲突检测形同虚设。
+	// 回档路径（game_snapshot_srv）本来就传 `toVersion = 0 + 1`，这里与它对齐。
+	if kv.Version < 1 {
+		kv.Version = 1
+	}
 	if err := tx.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{
 			{Name: "uid"}, {Name: "game_id"}, {Name: "kv_key"},
 		},
 		DoUpdates: clause.Assignments(map[string]interface{}{
-			"value":      kv.Value,
-			"size":       kv.Size,
-			"version":    gorm.Expr("version + 1"),
-			"updated_at": gorm.Expr("updated_at"),
+			"value":   kv.Value,
+			"size":    kv.Size,
+			"version": gorm.Expr("version + 1"),
+			// ⚠️ 必须把 `deleted_at` 清成 NULL，否则**写进去的行谁都读不出来**。
+			//
+			// `BaseModel` 带 `gorm.DeletedAt`，GORM 的 Delete 是**软删**
+			// （只打一个 `deleted_at`），而 Get / List 都会自动追加
+			// `deleted_at IS NULL`。upsert 命中一条软删过的行时只改 value/version，
+			// `deleted_at` 原样留着 ⇒ 接口返回 200 和一个版本号，客户端以为存上了，
+			// 实际上这一行对所有读路径都不可见（包括下一次拉取）。
+			//
+			// 实测踩过：卸载游戏（软删全部键）→ 重装 → 存档"存成功" →
+			// 服务端 get/list 永远返回空，客户端毫不知情，换台设备进度全丢。
+			// 症状之所以难查：写成功、无报错、版本号还在涨。
+			"deleted_at": nil,
+			// 原来这里是 `gorm.Expr("updated_at")` —— 把列赋给它自己，
+			// 等于**永远不刷新更新时间**（读出来的 `updated_at` 一直是第一次写的）。
+			// upsert 走的是原生 clause，不经过 GORM 的钩子，所以得手写。
+			"updated_at": time.Now().Unix(),
 		}),
 	}).Create(kv).Error; err != nil {
 		return err
@@ -154,16 +181,25 @@ func (r *GameKvRepository) PutWithTx(ctx context.Context, tx *gorm.DB, kv *entit
 }
 
 // Delete 删除单个键
+//
+// ⚠️ 用 `Unscoped()` **硬删**。这里不是「标记一下」的场景：
+// 存档是整块覆盖的 JSON，软删只会留下一条读不到、却仍占着唯一索引
+// `(uid, game_id, kv_key)` 的尸体。更糟的是 upsert 命中它会变成
+// 「写成功但谁也读不出来」（见 PutWithTx 里 `deleted_at: nil` 那段）。
 func (r *GameKvRepository) Delete(ctx context.Context, uid uint, gameID, key string) (int64, error) {
-	res := r.DB.WithContext(ctx).
+	res := r.DB.WithContext(ctx).Unscoped().
 		Where("uid = ? AND game_id = ? AND kv_key = ?", uid, gameID, key).
 		Delete(&entities.GameKv{})
 	return res.RowsAffected, res.Error
 }
 
 // DeleteGame 卸载游戏：删除该用户该游戏的全部键值（含保留键）
+//
+// ⚠️ 同样硬删 —— 「卸载」的语义就是数据没了。软删的后果实测过：
+// 卸载后重装，插件第一次 `storage.set` 会 upsert 到那条软删的行上，
+// 服务端返回 200 和版本号，客户端以为存上了，而 `get` / `list` 永远是空。
 func (r *GameKvRepository) DeleteGame(ctx context.Context, uid uint, gameID string) (int64, error) {
-	res := r.DB.WithContext(ctx).
+	res := r.DB.WithContext(ctx).Unscoped().
 		Where("uid = ? AND game_id = ?", uid, gameID).
 		Delete(&entities.GameKv{})
 	return res.RowsAffected, res.Error
