@@ -171,7 +171,7 @@ func (c *GameSnapshotAPI) RestoreByTime(ctx *gin.Context) {
 
 	// key 为空 = 回档整个游戏
 	if req.Key == "" {
-		n, err := c.Srv.RestoreGame(ctx.Request.Context(), uid, req.GameID, req.At, 0, req.Reason)
+		n, err := c.Srv.RestoreGame(ctx.Request.Context(), uid, req.GameID, req.At, req.MaxID, 0, req.Reason)
 		if err != nil {
 			ginx.RespErr(ctx, err)
 			return
@@ -180,7 +180,7 @@ func (c *GameSnapshotAPI) RestoreByTime(ctx *gin.Context) {
 		return
 	}
 
-	kv, err := c.Srv.RestoreByTime(ctx.Request.Context(), uid, req.GameID, req.Key, req.At, 0, req.Reason)
+	kv, err := c.Srv.RestoreByTime(ctx.Request.Context(), uid, req.GameID, req.Key, req.At, req.MaxID, 0, req.Reason)
 	if err != nil {
 		ginx.RespErr(ctx, err)
 		return

@@ -313,12 +313,67 @@ func TestRestoreByTime(t *testing.T) {
 	_, _ = svc.Create(ctx, uid, "cloudfarm", "save", `{"v":"B"}`, 2, entities.SnapshotReasonManual, "")
 
 	// 按时间回档到 cutoff 之前 → 应该回到 A
-	restored, err := svc.RestoreByTime(ctx, uid, "cloudfarm", "save", cutoff, 0, "按时间回档")
+	restored, err := svc.RestoreByTime(ctx, uid, "cloudfarm", "save", cutoff, 0, 0, "按时间回档")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if restored.Value != `{"v":"A"}` {
 		t.Fatalf("expected A, got %s", restored.Value)
+	}
+}
+
+/*
+ * ============================ 同一秒里的两份快照 ============================
+ *
+ * `restore-by-time` 的 `at` 只到**秒**。同一秒里落了两份快照时（界面刚把列表
+ * 画出来，孩子又玩了一下，服务端自己补了一份更新的），只按 `created_at <= at`
+ * 挑，挑到的是**那一秒里最新的一份** —— 界面没显示、家长没点的那份。
+ *
+ * 于是「预览说退回到 21:30 那份，实际退回到另一个状态」，两边都不报错。
+ * `max_id` 就是钉住「界面当时看到的那批」：快照 id 自增，所以
+ * `id <= max_id` 正好等于「界面读列表时已经存在的行」。
+ *
+ * 去掉仓储里那个 `if maxID > 0 { q = q.Where("id <= ?", maxID) }`，这条会红。
+ */
+func TestRestoreByTimePinsMaxID(t *testing.T) {
+	svc, _ := newSnapshotTestService(t)
+	ctx := context.Background()
+	const uid = uint(61)
+	const game, key = "cloudfarm", "save"
+
+	old, err := svc.Create(ctx, uid, game, key, `{"v":"old"}`, 1, entities.SnapshotReasonManual, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	newer, err := svc.Create(ctx, uid, game, key, `{"v":"newer"}`, 2, entities.SnapshotReasonManual, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 把两份压进**同一秒** —— 这就是线上真正发生的事
+	at := time.Now().Add(-10 * time.Second).Unix()
+	if err := svc.DB.Model(&entities.GameKvSnapshot{}).
+		Where("id IN ?", []uint{old.ID, newer.ID}).
+		Update("created_at", at).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// 不带 max_id：挑到那一秒里最新的一份（旧行为，也就是这次的 bug）
+	got, err := svc.RestoreByTime(ctx, uid, game, key, at, 0, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Value != `{"v":"newer"}` {
+		t.Fatalf("不带 max_id 应该挑同一秒里最新那份，got %s", got.Value)
+	}
+
+	// 带上界面看到的最大 id ⇒ 必须退回 old
+	got2, err := svc.RestoreByTime(ctx, uid, game, key, at, old.ID, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got2.Value != `{"v":"old"}` {
+		t.Fatalf("带 max_id=%d 应该退回 old，got %s", old.ID, got2.Value)
 	}
 }
 

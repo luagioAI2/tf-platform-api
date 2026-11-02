@@ -134,11 +134,18 @@ func (r *GameKvSnapshotRepository) GetLatest(ctx context.Context, uid uint, game
 }
 
 // GetLatestBefore 获取某时间点之前最近的快照（按时间回档用）
-func (r *GameKvSnapshotRepository) GetLatestBefore(ctx context.Context, uid uint, gameID, key string, before int64) (*entities.GameKvSnapshot, error) {
+//
+// `maxID > 0` 时只在 `id <= maxID` 里挑。`before` 是**秒**，同一秒可能有多份，
+// 只按时间挑会挑到「那一秒里最新的一份」；带上 maxID 才能钉住
+// 「界面当时看到的那批」（详见 `entities.GameSnapshotRestoreByTimeReq.MaxID`）。
+func (r *GameKvSnapshotRepository) GetLatestBefore(ctx context.Context, uid uint, gameID, key string, before int64, maxID uint) (*entities.GameKvSnapshot, error) {
+	q := r.DB.WithContext(ctx).
+		Where("uid = ? AND game_id = ? AND kv_key = ? AND created_at <= ?", uid, gameID, key, before)
+	if maxID > 0 {
+		q = q.Where("id <= ?", maxID)
+	}
 	var s entities.GameKvSnapshot
-	err := r.DB.WithContext(ctx).
-		Where("uid = ? AND game_id = ? AND kv_key = ? AND created_at <= ?", uid, gameID, key, before).
-		Order("id DESC").First(&s).Error
+	err := q.Order("id DESC").First(&s).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}

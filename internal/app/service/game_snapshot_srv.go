@@ -346,8 +346,11 @@ func (s *GameSnapshotService) Restore(ctx context.Context, uid, snapshotID uint,
 }
 
 // RestoreByTime 按时间点回档：把某时刻之前最近的快照写回。
-func (s *GameSnapshotService) RestoreByTime(ctx context.Context, uid uint, gameID, key string, at int64, operatorID uint, reason string) (*entities.GameKv, error) {
-	snap, err := s.SnapRepo.GetLatestBefore(ctx, uid, gameID, key, at)
+//
+// `maxID` 用来钉住「界面当时看到的那批快照」（0 = 不限制），
+// 因为 `at` 只到秒，同一秒里可能有多份（详见 `GameSnapshotRestoreByTimeReq.MaxID`）。
+func (s *GameSnapshotService) RestoreByTime(ctx context.Context, uid uint, gameID, key string, at int64, maxID uint, operatorID uint, reason string) (*entities.GameKv, error) {
+	snap, err := s.SnapRepo.GetLatestBefore(ctx, uid, gameID, key, at, maxID)
 	if err != nil {
 		return nil, apperrors.WithError(err)
 	}
@@ -361,7 +364,7 @@ func (s *GameSnapshotService) RestoreByTime(ctx context.Context, uid uint, gameI
 //
 // 遍历该游戏所有有快照的 key，各取 at 之前最近的快照写回。
 // 返回成功回档的 key 数量。
-func (s *GameSnapshotService) RestoreGame(ctx context.Context, uid uint, gameID string, at int64, operatorID uint, reason string) (int, error) {
+func (s *GameSnapshotService) RestoreGame(ctx context.Context, uid uint, gameID string, at int64, maxID uint, operatorID uint, reason string) (int, error) {
 	// 找出该游戏所有有过快照的 key
 	snaps, err := s.SnapRepo.ListAll(ctx, uid, gameID, 500)
 	if err != nil {
@@ -376,7 +379,7 @@ func (s *GameSnapshotService) RestoreGame(ctx context.Context, uid uint, gameID 
 
 	restored := 0
 	for key := range keySet {
-		if _, err := s.RestoreByTime(ctx, uid, gameID, key, at, operatorID, reason); err != nil {
+		if _, err := s.RestoreByTime(ctx, uid, gameID, key, at, maxID, operatorID, reason); err != nil {
 			logger.ZWarn("restore key failed",
 				zap.Uint("uid", uid), zap.String("game_id", gameID),
 				zap.String("key", key), zap.Error(err))
