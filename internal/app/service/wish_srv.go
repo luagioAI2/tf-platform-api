@@ -437,9 +437,25 @@ func (s *WishService) Redeem(ctx context.Context, uid uint, req *entities.WishRe
 			return apperrors.WithCode(apperrors.WishItemNotOpen)
 		}
 
-		// 实物必须有收货信息
+		/*
+		 * 收货信息：**收到就存，没收到也放行**（2026-11-02 改）。
+		 *
+		 * 原来这里对实物商品是硬性要求（`WishShipInfoRequired`），出发点是对的：
+		 * 没有地址就没法发货。但**两个客户端都不收集地址** ——
+		 * 心愿页的「填收货信息」在 spec §9 里是 P3，一直没做；
+		 * 家长的真实动作是「去淘宝自己买」，App 只负责记状态。
+		 *
+		 * 于是一条硬性要求变成了「所有实物心愿永远换不了」：
+		 * 孩子点了兑换只会收到 10071201，而界面上没有任何地方能填地址。
+		 * 本地版（`kid-quest-farm-2d`）没有这道闸，同一个动作在那边是通的 ——
+		 * 两个版本的差别不该是「这个功能在服务器版坏掉」。
+		 *
+		 * ⇒ 改成可选：客户端带了就存（下面的 `if req.Ship != nil`），
+		 *   没带就留空。地址以后由家长在心愿页补，不影响「券真扣」这条底线。
+		 */
 		if !it.Kind.IsDigital() && req.Ship == nil {
-			return apperrors.WithCode(apperrors.WishShipInfoRequired)
+			logger.ZInfo("wish redeem without ship info",
+				zap.Uint("uid", uid), zap.String("item_id", it.ItemID))
 		}
 
 		// 算分账：券优先，不够用积分补（与「兑换」同一个函数）
