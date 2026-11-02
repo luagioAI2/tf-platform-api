@@ -32,6 +32,37 @@ func (r *GameKvSnapshotRepository) CreateWithTx(tx *gorm.DB, s *entities.GameKvS
 	return tx.Create(s).Error
 }
 
+// CreatedAtByIDs 批量取快照的创建时间（id → Unix 秒）。
+//
+// 给回档日志用：日志里存的是 `snapshot_id`，家长要的是「哪一天那份」。
+//
+// ⚠️ 用 `Unscoped()`：快照会被保留策略软删，而**回档日志要留着**
+// （审计用）。不 Unscoped 的话，被淘汰的那份查不到时间，
+// 界面就只能退回「退回了以前的版本」这种没用的话。
+func (r *GameKvSnapshotRepository) CreatedAtByIDs(ctx context.Context, uid uint, ids []uint) (map[uint]int64, error) {
+	out := make(map[uint]int64, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		ID        uint
+		CreatedAt int64
+	}
+	err := r.DB.WithContext(ctx).
+		Unscoped().
+		Model(&entities.GameKvSnapshot{}).
+		Select("id, created_at").
+		Where("uid = ? AND id IN ?", uid, ids).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		out[row.ID] = row.CreatedAt
+	}
+	return out, nil
+}
+
 // Get 按 ID 查询快照
 func (r *GameKvSnapshotRepository) Get(ctx context.Context, uid uint, snapshotID uint) (*entities.GameKvSnapshot, error) {
 	var s entities.GameKvSnapshot

@@ -323,6 +323,9 @@ func (s *GameSnapshotService) Restore(ctx context.Context, uid, snapshotID uint,
 			ToVersion:   toVersion,
 			OperatorID:  operatorID,
 			Reason:      reason,
+			// 被恢复那份快照的时间，**在这一刻固化**（详见实体注释：
+			// 现查的话，快照被淘汰后历史记录会退回「以前的版本」）
+			TargetAt: snap.CreatedAt,
 		}
 		return s.LogRepo.CreateWithTx(tx, log)
 	})
@@ -384,11 +387,44 @@ func (s *GameSnapshotService) RestoreGame(ctx context.Context, uid uint, gameID 
 	return restored, nil
 }
 
-// RestoreLogs 查询回档日志
+// RestoreLogs 查询回档日志。
+//
+// `target_at`（被恢复那份快照的创建时间）现在由 `Restore` 在回档那一刻写进
+// 日志行，正常情况下这里什么都不用补。
+//
+// 这里只处理**老行**：加这一列之前写的日志 `target_at` 是 0，按 `snapshot_id`
+// 回填一次。回填不上（快照已被保留策略淘汰）就留 0，界面自己退回旧说法。
+//
+// ⚠️ 补时间是**尽力而为**：查不到不能让整个列表失败 ——
+// 那样「回档记录」会变成「因为一份老快照没了，所以整页打不开」。
 func (s *GameSnapshotService) RestoreLogs(ctx context.Context, uid uint, gameID string, limit int) ([]*entities.GameKvRestoreLog, error) {
 	list, err := s.LogRepo.List(ctx, uid, gameID, limit)
 	if err != nil {
 		return nil, apperrors.WithError(err)
+	}
+	if len(list) == 0 {
+		return list, nil
+	}
+	// 只查老行（target_at == 0）；新行已经带着时间，不必再查一遍
+	ids := make([]uint, 0, len(list))
+	for _, l := range list {
+		if l.SnapshotID > 0 && l.TargetAt == 0 {
+			ids = append(ids, l.SnapshotID)
+		}
+	}
+	if len(ids) == 0 {
+		return list, nil
+	}
+	at, err := s.SnapRepo.CreatedAtByIDs(ctx, uid, ids)
+	if err != nil {
+		logger.ZError("restore logs: load snapshot times failed",
+			zap.Uint("uid", uid), zap.Error(err))
+		return list, nil
+	}
+	for _, l := range list {
+		if l.TargetAt == 0 {
+			l.TargetAt = at[l.SnapshotID]
+		}
 	}
 	return list, nil
 }

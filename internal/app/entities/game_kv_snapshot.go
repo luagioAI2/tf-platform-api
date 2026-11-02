@@ -97,6 +97,20 @@ type GameKvRestoreLog struct {
 	OperatorID uint `gorm:"column:operator_id;default:0;index" json:"operator_id"`
 	// Reason 回档原因
 	Reason string `gorm:"column:reason;size:255" json:"reason"`
+
+	// TargetAt 被恢复的那份快照的**创建时间**（Unix 秒）。
+	//
+	// 为什么要它：家长在界面上看到的是「还原点」，不是「第 3 版」——
+	// 只回一句「退回了以前的版本」，他没法知道退回到了哪一天。
+	//
+	// ⚠️ **必须在回档那一刻写进日志行，不能只在列表时现查**：被恢复的那份快照
+	// 会被保留策略淘汰（每个 key 只留 20 份），现查的话过几天历史记录就全变成
+	// 「以前的版本」—— 刚修好的东西会自己烂掉。`SnapshotID` 留给审计追溯，
+	// 时间这一项要在回档时就固化下来。
+	//
+	// 老行（加这一列之前写的）这里是 0，列表时按 `snapshot_id` 回填一次；
+	// 回填不上（快照已经淘汰）就还是 0，界面退回旧说法，不能显示成 1970。
+	TargetAt int64 `gorm:"column:target_at;default:0" json:"target_at"`
 }
 
 func (GameKvRestoreLog) TableName() string { return "game_kv_restore_log" }

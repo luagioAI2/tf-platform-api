@@ -144,6 +144,51 @@ func TestRestore(t *testing.T) {
 	if logs[0].SnapshotID != snap.ID {
 		t.Fatalf("log snapshot_id = %d, want %d", logs[0].SnapshotID, snap.ID)
 	}
+
+	// 7. 日志要带上「退回到哪一份」的时间，家长才看得懂
+	if logs[0].TargetAt != snap.CreatedAt {
+		t.Fatalf("log target_at = %d, want %d（快照创建时间）", logs[0].TargetAt, snap.CreatedAt)
+	}
+}
+
+// TestRestoreLogTargetAtSurvivesPrune 验证回档日志里的时间**不依赖那份快照还在**。
+//
+// 这是这一列存在的唯一理由：快照会被保留策略淘汰（每个 key 只留 20 份），
+// 如果 target_at 是列表时现查的，那么过几天所有历史回档记录都会退回
+// 「退回了以前的版本」—— 修好的东西自己烂掉，而且**不报错**。
+func TestRestoreLogTargetAtSurvivesPrune(t *testing.T) {
+	svc, kvRepo := newSnapshotTestService(t)
+	ctx := context.Background()
+	const uid = uint(5)
+
+	kv := &entities.GameKv{UID: uid, GameID: "cloudfarm", Key: "save", Value: `{"v":"A"}`, Size: 11}
+	_ = kvRepo.Put(ctx, kv, 0)
+	snap, err := svc.Create(ctx, uid, "cloudfarm", "save", `{"v":"A"}`, 1, entities.SnapshotReasonManual, "A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := snap.CreatedAt
+
+	if _, err := svc.Restore(ctx, uid, snap.ID, 0, "回到 A"); err != nil {
+		t.Fatal(err)
+	}
+
+	// 把那份快照**物理删掉**（模拟保留策略淘汰 / 卸载清理）
+	if err := svc.SnapRepo.DB.WithContext(ctx).Unscoped().
+		Delete(&entities.GameKvSnapshot{}, snap.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	logs, err := svc.RestoreLogs(ctx, uid, "cloudfarm", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 restore log, got %d", len(logs))
+	}
+	if logs[0].TargetAt != want {
+		t.Fatalf("快照已删，target_at 应该还在 = %d，实际 %d", want, logs[0].TargetAt)
+	}
 }
 
 // TestRestoreIsReversible 验证「回档本身也可回档」
