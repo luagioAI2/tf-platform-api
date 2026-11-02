@@ -45,11 +45,16 @@ func ProvideFarmService(
 // （「卖出 12 券」vs「任务奖励 10 分」），来源错了流水就读不懂。
 // 这也挡住客户端顺手把自己的消费记成 `task_reward`。
 var farmClaimSources = map[string]bool{
-	entities.SourceFarmHarvest:   true, // 作物卖出
-	entities.SourceAnimalProduce: true, // 动物产出卖出
-	entities.SourceSeedPurchase:  true, // 买种子（扣积分）
+	entities.SourceFarmHarvest:    true, // 作物卖出
+	entities.SourceAnimalProduce:  true, // 动物产出卖出
+	entities.SourceSeedPurchase:   true, // 买种子（扣积分）
 	entities.SourceAnimalPurchase: true, // 买动物（扣积分）
-	entities.SourcePluginMint:    true, // 插件游戏发券
+	entities.SourcePluginMint:     true, // 插件游戏发券
+
+	// 客户端农场动作实际用的三个（名字逐字一致，见 entities/wallet.go）
+	entities.SourceFarmPlant:    true, // 种下去（扣积分）
+	entities.SourceFarmPurchase: true, // 买动物 / 解锁地块（扣积分）
+	entities.SourceFarmMarket:   true, // 卖产出（得券）
 }
 
 // Get 读取农场状态
@@ -180,8 +185,8 @@ func validateFarmClaim(c entities.FarmLedgerClaim) error {
 
 // farmOpKey 幂等键。
 //
-// ★ 必须带 uid：`ledger_entry.idempotency_key` 是全局唯一的，
-//   只带客户端生成的 op_id 的话，两个用户的随机 id 撞了会互相吃掉对方的一笔账。
+// ★ 必须带 uid：`ledger_entry.idempotency_key` 是全局唯一的。
+// 只带客户端生成的 op_id 的话，两个用户的随机 id 撞了会互相吃掉对方的一笔账。
 func farmOpKey(uid uint, opID string) string {
 	return fmt.Sprintf("farm:%d:%s", uid, opID)
 }

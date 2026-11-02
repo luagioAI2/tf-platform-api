@@ -123,6 +123,16 @@ const (
 	SourceRegisterGift = "register_gift" // 注册赠送
 	SourceInviteReward = "invite_reward" // 邀请奖励
 
+	// 农场（2026-11-02 在线版）
+	//
+	// ★ 名字和客户端 `src/domain/types.ts` 的 `LedgerSource` / `HarvestSource`
+	//   **逐字一致**。账本来源是要给家长看流水的（「卖出 12 券」），
+	//   两边各起一套名字就必然有一边翻错 —— 而翻错不会报错，
+	//   只会让流水读不懂，家长以为钱花错了地方。
+	SourceFarmPlant    = "farm_plant"    // 买种子种下去（扣积分）
+	SourceFarmPurchase = "farm_purchase" // 买动物 / 解锁地块（扣积分）
+	SourceFarmMarket   = "farm_market"   // 市场卖出产出（得兑换券）
+
 	// 支出
 	SourceSeedPurchase   = "seed_purchase"   // 买种子
 	SourceAnimalPurchase = "animal_purchase" // 买动物
@@ -162,6 +172,7 @@ func IsIncome(source string) bool {
 	case SourceTaskReward, SourceCheckIn, SourceStreakBonus, SourceTierBonus,
 		SourceManualAdjust, SourceRedeemRefund, SourceRegisterGift, SourceInviteReward,
 		SourceFarmHarvest, SourceAnimalProduce, SourceClawPrize, SourcePluginMint,
+		SourceFarmMarket,
 		SourceDiamondRecharge, SourceRedemptionCode, SourceWishRefund:
 		return true
 	}
