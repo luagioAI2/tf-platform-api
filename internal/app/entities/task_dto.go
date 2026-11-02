@@ -200,3 +200,26 @@ type GameCoinResp struct {
 	// Points 本次扣的积分（仅 buy）
 	Points int64 `json:"points,omitempty"`
 }
+
+// GameCoinVoucherReq 插件发兑换券（抓到奖品）。
+//
+// 为什么不复用 `/game/coin/redeem`：那条路要**先有币**，而奖品的语义是
+// 「抓到了 → 直接给券」，币只是入场券（见前端 `mintGameVouchers` 的注释）。
+// 用「铸币 + 换券」凑出来会在账本上留一对 `+n / -n`，家长看不懂，
+// 而且中间崩一下就会留下**真实的币**（币能直接开局）。
+type GameCoinVoucherReq struct {
+	GameID string `json:"game_id" binding:"required,max=32"`
+	Amount int64  `json:"amount" binding:"required,min=1,max=1000"`
+	Memo   string `json:"memo" binding:"omitempty,max=128"`
+	// ClientRequestID 幂等键（重试不会发两次券）
+	ClientRequestID string `json:"client_request_id" binding:"omitempty,max=64"`
+}
+
+// GameCoinVoucherResp 发券结果
+type GameCoinVoucherResp struct {
+	GameID string `json:"game_id"`
+	// Vouchers 本次发出的兑换券
+	Vouchers int64 `json:"vouchers"`
+	// CouponBalance 发完之后的兑换券余额
+	CouponBalance int64 `json:"coupon_balance"`
+}

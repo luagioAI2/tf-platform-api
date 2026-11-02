@@ -111,6 +111,29 @@ type WalletInfo struct {
 	Diamond int64 `json:"diamond"` // 钻石
 }
 
+// WalletSpendReq 扣积分（插件游戏开局这类「游戏内消费」）。
+//
+// ## 为什么需要一个通用扣分接口
+//
+// 在线版的积分以服务端为准，但**插件游戏扣分原本只写本地账本**。
+// 那会静默漂移：本地多一条 `lg_` 行、服务端没有，而拉取只清 `srv_` 行 ——
+// 那条本地行永远留着，余额就此对不上，界面上什么都看不出来。
+//
+// ## `Source` 白名单只有一个值
+//
+// 只允许 `game_spend`。放开通用的 `manual_adjust` 等于给了客户端
+// 「任意改写流水来源」的能力，而来源正是家长看流水时的唯一线索。
+type WalletSpendReq struct {
+	Amount int64 `json:"amount" binding:"required,min=1,max=100000"`
+	// Source 来源，缺省 `game_spend`
+	Source string `json:"source" binding:"omitempty,max=32"`
+	// RefID 关联对象（哪款游戏扣的）
+	RefID string `json:"ref_id" binding:"omitempty,max=64"`
+	Memo  string `json:"memo" binding:"omitempty,max=128"`
+	// ClientRequestID 幂等键
+	ClientRequestID string `json:"client_request_id" binding:"omitempty,max=64"`
+}
+
 // ============================ 游戏 ============================
 
 // GameListReq 游戏列表请求

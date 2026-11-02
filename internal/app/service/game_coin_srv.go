@@ -89,6 +89,22 @@ func (s *GameCoinService) ListInfo(ctx context.Context, uid uint) ([]*entities.G
 	return out, nil
 }
 
+// idemKey 拼一个幂等键。
+//
+// ★ 客户端**没给** `request_id` 时返回**空串**，让账本落 NULL。
+//
+// 之前是直接 `"game_coin_spend:" + req.ClientRequestID` —— 客户端不传时
+// 拼出来是 `"game_coin_spend:"`（一个**常量**），于是第二次调用撞上账本唯一索引，
+// 被翻成「该笔记录已存在」（610）。症状是「第一次能玩，第二次开始一直说
+// 已经做过了」—— 而且只发生在**不传 request_id 的客户端**身上，
+// 带 id 的客户端永远看不到。2026-11-02 在 `MintVoucher` 上踩过同一类。
+func idemKey(prefix, reqID string) string {
+	if reqID == "" {
+		return ""
+	}
+	return prefix + reqID
+}
+
 // Buy 用积分买游戏币。
 //
 // 扣积分 + 记游戏币在**同一个数据库事务**里 —— 拆开就会出现
@@ -117,7 +133,7 @@ func (s *GameCoinService) Buy(ctx context.Context, uid uint, req *entities.GameC
 			Source:         entities.SourceGameSpend,
 			RefID:          req.GameID,
 			Memo:           fmt.Sprintf("购买 %d 个游戏币（%s）", req.Count, req.GameID),
-			IdempotencyKey: "game_coin_buy_points:" + req.ClientRequestID,
+			IdempotencyKey: idemKey("game_coin_buy_points:", req.ClientRequestID),
 		})
 		if err != nil {
 			return err
@@ -130,7 +146,7 @@ func (s *GameCoinService) Buy(ctx context.Context, uid uint, req *entities.GameC
 			Delta:          req.Count,
 			Source:         entities.GameCoinSourceBuy,
 			Memo:           fmt.Sprintf("购买 %d 个币", req.Count),
-			IdempotencyKey: "game_coin_buy:" + req.ClientRequestID,
+			IdempotencyKey: idemKey("game_coin_buy:", req.ClientRequestID),
 		})
 		if err != nil {
 			return err
@@ -158,7 +174,7 @@ func (s *GameCoinService) Spend(ctx context.Context, uid uint, req *entities.Gam
 		Delta:          -req.Amount,
 		Source:         entities.GameCoinSourceSpend,
 		Memo:           req.Memo,
-		IdempotencyKey: "game_coin_spend:" + req.ClientRequestID,
+		IdempotencyKey: idemKey("game_coin_spend:", req.ClientRequestID),
 	})
 	if err != nil {
 		return nil, s.mapErr(err)
@@ -186,6 +202,73 @@ func (s *GameCoinService) Mint(ctx context.Context, uid uint, req *entities.Game
 		GameID:  req.GameID,
 		Balance: bal,
 		Amount:  req.Amount,
+	}, nil
+}
+
+// MintVoucher 插件抓到奖品 → 直接发兑换券（HOST_API 4 的 `mintVoucher`）。
+//
+// ## 为什么不走「铸币 + 换券」
+//
+// 两个事务、两笔账。中间崩一下会留下**真实的币**，而币能直接开局 ——
+// 于是抓娃娃本身能续玩，正是要堵的那条回路；而且每卖一只娃娃账本上
+// 留一对 `+n / -n`，家长看到的流水没法读。
+//
+// ## 为什么这条不算印钞机
+//
+// 兑换券 ⇸ 积分（`entities` 里那两条不可逆约束），这条链的价值上限由
+// 插件 manifest 的 `economy.expectedPayout` 钉住，安装时
+// `domain/pluginEconomy.ts` 会把关。**服务端不校验 manifest** ——
+// 和 `/game/coin/mint` 同一个信任模型（客户端可信，没有反作弊）。
+func (s *GameCoinService) MintVoucher(ctx context.Context, uid uint, req *entities.GameCoinVoucherReq) (*entities.GameCoinVoucherResp, error) {
+	if req.Amount <= 0 {
+		return nil, apperrors.WithCode(apperrors.InvalidParam)
+	}
+
+	/* 幂等键**只在客户端给了才拼**。
+	   拼成 `"game_voucher_mint:"`（常量）的话，第二次不带 request_id 的调用
+	   会撞账本唯一索引 → 报「该笔记录已存在」，孩子再也拿不到券。
+	   2026-11-02 在心愿兑换上踩过一模一样的事（见 wish_srv.go 的注释）。 */
+	key := idemKey("game_voucher_mint:", req.ClientRequestID)
+
+	/* 幂等命中要**当成成功**返回，不能让它走到 `ChangeWithTx` ——
+	   那里会把 `ErrDuplicateLedger` 翻成业务错误，插件据此判断「没发出来」，
+	   于是重试时界面上写着「没抓到」，券其实已经到账了。 */
+	if key != "" {
+		var existing entities.LedgerEntry
+		err := s.DB.WithContext(ctx).Where("idempotency_key = ?", key).First(&existing).Error
+		if err == nil {
+			return &entities.GameCoinVoucherResp{
+				GameID:        req.GameID,
+				Vouchers:      req.Amount,
+				CouponBalance: existing.BalanceAfter,
+			}, nil
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, apperrors.WithError(err)
+		}
+	}
+
+	var bal int64
+	err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var e error
+		bal, _, e = s.WalletSrv.ChangeWithTx(ctx, tx, repository.BalanceChange{
+			UID:            uid,
+			Currency:       entities.CurrencyCoupon,
+			Delta:          req.Amount,
+			Source:         entities.SourcePluginMint,
+			RefID:          req.GameID,
+			Memo:           req.Memo,
+			IdempotencyKey: key,
+		})
+		return e
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &entities.GameCoinVoucherResp{
+		GameID:        req.GameID,
+		Vouchers:      req.Amount,
+		CouponBalance: bal,
 	}, nil
 }
 
@@ -219,7 +302,7 @@ func (s *GameCoinService) Redeem(ctx context.Context, uid uint, req *entities.Ga
 			Delta:          -req.Count,
 			Source:         entities.GameCoinSourceRedeem,
 			Memo:           fmt.Sprintf("兑换 %d 张兑换券", vouchers),
-			IdempotencyKey: "game_coin_redeem:" + req.ClientRequestID,
+			IdempotencyKey: idemKey("game_coin_redeem:", req.ClientRequestID),
 		})
 		if err != nil {
 			return err
@@ -234,7 +317,7 @@ func (s *GameCoinService) Redeem(ctx context.Context, uid uint, req *entities.Ga
 			Source:         entities.SourcePluginMint,
 			RefID:          req.GameID,
 			Memo:           fmt.Sprintf("游戏币兑换（%s）", req.GameID),
-			IdempotencyKey: "game_coin_redeem_coupon:" + req.ClientRequestID,
+			IdempotencyKey: idemKey("game_coin_redeem_coupon:", req.ClientRequestID),
 		})
 		return err
 	})

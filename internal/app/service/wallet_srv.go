@@ -120,6 +120,59 @@ func (s *WalletService) Change(ctx context.Context, c repository.BalanceChange) 
 	return balance, entry, nil
 }
 
+// SpendPoints 扣积分（插件游戏开局这类「游戏内消费」）。
+//
+// ## 为什么在线版必须走服务端
+//
+// 在线版的积分以服务端为准（余额 = 服务端流水之和）。插件游戏扣分原本
+// 只写本地账本，那会**静默漂移**：本地多一条 `lg_` 行、服务端没有，
+// 而拉取只清 `srv_` 行 —— 那条本地行永远留着，余额就此对不上，
+// 界面上什么都看不出来，只会某天发现「妈妈的手机比孩子多 30 分」。
+//
+// ## 只认 `game_spend`
+//
+// 放开通用的 `manual_adjust` 等于给了客户端「任意改写流水来源」的能力，
+// 而来源是家长看流水时的唯一线索。多一种来源就多一处要维护的口径，
+// 所以这里**白名单只有一个值**。
+//
+// 幂等键只在客户端给了才拼 —— 拼成常量会让第二次调用撞唯一索引，
+// 表现成「玩不了第二局」。
+func (s *WalletService) SpendPoints(ctx context.Context, uid uint, req *entities.WalletSpendReq) (*entities.WalletInfo, error) {
+	source := req.Source
+	if source == "" {
+		source = entities.SourceGameSpend
+	}
+	if source != entities.SourceGameSpend {
+		return nil, apperrors.WithCode(apperrors.InvalidParam)
+	}
+
+	key := ""
+	if req.ClientRequestID != "" {
+		key = "wallet_spend:" + req.ClientRequestID
+	}
+
+	_, _, err := s.Change(ctx, repository.BalanceChange{
+		UID:            uid,
+		Currency:       entities.CurrencyPoints,
+		Delta:          -req.Amount,
+		Source:         source,
+		RefID:          req.RefID,
+		Memo:           req.Memo,
+		IdempotencyKey: key,
+	})
+	// 重试（同一个 request_id）会撞幂等键 —— 那笔其实已经成功了，
+	// 不该让调用方以为「没扣成」而再扣一次。所以按成功处理。
+	if err != nil && !apperrors.Is(err, apperrors.DuplicateLedgerEntry) {
+		return nil, err
+	}
+
+	w, err := s.GetWallet(ctx, uid)
+	if err != nil {
+		return nil, err
+	}
+	return w, nil
+}
+
 // ChangeWithTx 在给定事务内变更余额（供跨表事务使用）。
 //
 // 用于「扣积分 + 记游戏币」这类必须原子完成的场景。

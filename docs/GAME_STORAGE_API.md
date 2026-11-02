@@ -277,7 +277,17 @@ KV 是整块覆盖，旧值一写就没了。快照提供三件事：
 | `POST /api/game/coin/spend` | 消费币（玩一局） |
 | `POST /api/game/coin/mint` | 铸币（插件调用，只进不出） |
 | `POST /api/game/coin/redeem` | 币换兑换券（**同一事务**烧币 + 发券） |
+| `POST /api/game/coin/voucher` | **发兑换券**（插件抓到奖品，不经过币） |
 | `POST /api/game/coin/ledger` | 查币账本 |
+| `POST /api/wallet/spend` | 插件扣积分（开局费），来源白名单只有 `game_spend` |
+
+> ⚠️ `ledger` 的分页参数是 **`page_size`（下划线）**，和走 `entities.Paginator`
+> 的那几个模块（`pageSize` 驼峰）**相反**。传错不报错，只会永远回 30 条 ——
+> 和 §7.1 那个 `LIKE` 坑同一类：看起来能用。
+>
+> `voucher` 和 `redeem` 是两条路，别混：`redeem` 要**先有币**（币是入场券），
+> `voucher` 是「抓到了就直接给券」。用「铸币 + 换券」凑会在账本上留一对
+> `+n / -n`，而且中间崩一下就会留下**真实的币**（币能直接开局）。
 
 ### 4.4 实测验证
 
@@ -343,9 +353,16 @@ storage: {
 | `spendGameCoin(...)` | `POST /api/game/coin/spend` |
 | `addGameCoin(...)` | `POST /api/game/coin/mint` |
 | `redeemGameCoins(...)` | `POST /api/game/coin/redeem` |
+| `mintGameVouchers(...)` | `POST /api/game/coin/voucher` |
+| `spendPoints(...)` | `POST /api/wallet/spend` |
 
 **关键差异**：前端 `spendGameCoin` 是本地事务，服务端是**行锁 + 版本号**。
 并发安全性更强，但要注意**网络重试要带 `client_request_id`**（幂等键）。
+
+> 客户端已经按这张表接完了（`kid-quest-farm-online` 的 `src/online/coin.ts`）。
+> 三件在客户端必须**先挡掉**再发请求的事（服务端不知道本地那几条语义）：
+> 数量 ≤ 0（服务端 `min=1` 会报参数错误）、买币单价 ≤ 0（服务端会**兜底 10**）、
+> `voucherPerCoin = 0`（服务端读不到 manifest，会照换不误）。
 
 ### 5.3 离线优先的妥协
 
@@ -420,3 +437,21 @@ Where(`kv_key NOT LIKE ? ESCAPE '\'`, `\_\_%`)
 ```
 
 **教训**：这个 bug 不会报错，只会静默返回空结果 —— 典型的「看起来能用」的坑。
+
+---
+
+### 7.2 幂等键拼成常量 ⇒ 第二次开局永远失败（已修复）
+
+**现象**：第一次能玩，第二次开始一直返回「该笔记录已存在」（610）。
+只在**不传 `client_request_id`** 的客户端上出现。
+
+**原因**：`"game_coin_spend:" + req.ClientRequestID` 在客户端不传时
+拼出来是 `"game_coin_spend:"` —— 一个**常量**。第二次调用撞上账本唯一索引，
+被 `mapErr` 翻成 `DuplicateOperation`。
+
+**修复**：加 `idemKey(prefix, reqID)`，`reqID == ""` 时返回**空串**
+（`SetIdempotencyKey` 会把空串落成 `NULL`，唯一索引就不拦了）。
+五处调用点（`buy` 两条、`spend`、`redeem` 两条）加 `MintVoucher` 一起改。
+
+**教训**：`if key != ""` 这种守卫，写在**拼好之后**是错的 —— 拼出来的常量
+永远非空。守卫要写在**拼之前**。

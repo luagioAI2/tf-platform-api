@@ -171,6 +171,33 @@ func (c *GameCoinAPI) Redeem(ctx *gin.Context) {
 	ginx.RespSucc(ctx, resp)
 }
 
+// Voucher 插件抓到奖品 → 直接发兑换券
+// @Tags GameCoin[游戏币]
+// @Summary 发兑换券（插件奖品，不经过游戏币）
+// @Accept json
+// @Produce json
+// @Security ApiKeyAuth
+// @Param req body entities.GameCoinVoucherReq true "参数"
+// @Success 200 {object} ginx.Resp{data=entities.GameCoinVoucherResp}
+// @Router /api/game/coin/voucher [post]
+func (c *GameCoinAPI) Voucher(ctx *gin.Context) {
+	uid, ok := ginx.MustMine(ctx)
+	if !ok {
+		return
+	}
+	var req entities.GameCoinVoucherReq
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ginx.RespErr(ctx, err)
+		return
+	}
+	resp, err := c.Srv.MintVoucher(ctx.Request.Context(), uid, &req)
+	if err != nil {
+		ginx.RespErr(ctx, err)
+		return
+	}
+	ginx.RespSucc(ctx, resp)
+}
+
 // Ledger 游戏币账本
 // @Tags GameCoin[游戏币]
 // @Summary 查询游戏币账本

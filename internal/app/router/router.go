@@ -147,6 +147,7 @@ func (a *Router) registerAPI(app *gin.Engine) {
 	{
 		walletGroup.POST("/info", a.WalletAPI.Info)
 		walletGroup.POST("/ledger", a.WalletAPI.Ledger)
+		walletGroup.POST("/spend", a.WalletAPI.Spend)
 	}
 
 	// ---- 游戏商城 ----
@@ -191,6 +192,7 @@ func (a *Router) registerAPI(app *gin.Engine) {
 		coinGroup.POST("/spend", a.GameCoinAPI.Spend)
 		coinGroup.POST("/mint", a.GameCoinAPI.Mint)
 		coinGroup.POST("/redeem", a.GameCoinAPI.Redeem)
+		coinGroup.POST("/voucher", a.GameCoinAPI.Voucher)
 		coinGroup.POST("/ledger", a.GameCoinAPI.Ledger)
 	}
 
