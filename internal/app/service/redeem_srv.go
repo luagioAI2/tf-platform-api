@@ -206,7 +206,17 @@ func (s *RedeemService) DeleteItem(ctx context.Context, uid uint, itemID string)
 // 心愿那半的过滤规则见 `WishService.ShelfEntries`（四条，一个都不能少）。
 //
 // 每行附带：分账预览（券多少 + 积分多少）/ 够不够换 / 今日上限。
-func (s *RedeemService) ListItems(ctx context.Context, uid uint, includeArchived bool) ([]*entities.RedeemRow, error) {
+//
+// ## raw 模式（客户端镜像用）
+//
+// `raw = true` 时**一条都不删**，改为在每行上标 `Visible`。原因见
+// `ListRedeemItemReq.Raw` 的注释：上面那三条是「给孩子看」的口径，
+// 家长管理页拿它当数据源就会看到「商品不见了」，然后重新建一条一模一样的。
+// 过滤规则本身只有一份（下面这个 `visible` 表达式），两种模式共用，
+// 所以不会出现「列表里没有、兑换时又说能换」这种自相矛盾。
+func (s *RedeemService) ListItems(
+	ctx context.Context, uid uint, includeArchived, raw bool,
+) ([]*entities.RedeemRow, error) {
 	items, err := s.Repo.ListItems(ctx, uid, includeArchived)
 	if err != nil {
 		return nil, apperrors.WithError(err)
@@ -226,28 +236,30 @@ func (s *RedeemService) ListItems(ctx context.Context, uid uint, includeArchived
 
 	for _, it := range items {
 		// once：换过就不再出现
+		onceDone := false
 		if it.Once {
 			has, err := s.Repo.HasRedeemedOnce(ctx, uid, it.ItemID)
 			if err != nil {
 				return nil, apperrors.WithError(err)
 			}
-			if has {
-				continue
-			}
+			onceDone = has
 		}
 
 		// 库存
-		if it.Stock == 0 {
-			continue
-		}
-		if it.Stock > 0 {
+		soldOut := it.Stock == 0
+		if !soldOut && it.Stock > 0 {
 			used, err := s.Repo.CountRedeemedByItem(ctx, uid, it.ItemID)
 			if err != nil {
 				return nil, apperrors.WithError(err)
 			}
-			if used >= int64(it.Stock) {
-				continue
-			}
+			soldOut = used >= int64(it.Stock)
+		}
+
+		/* 三条过滤规则只写在这一处 —— 默认模式和 raw 模式共用，
+		   所以不会出现「列表里没有它、兑换时又说能换」。 */
+		visible := !it.Archived && !onceDone && !soldOut
+		if !raw && !visible {
+			continue
 		}
 
 		todayCount, err := s.Repo.CountTodayByItem(ctx, uid, it.ItemID, dayStart)
@@ -266,21 +278,27 @@ func (s *RedeemService) ListItems(ctx context.Context, uid uint, includeArchived
 		blockedByLimit := it.LimitPerDay > 0 && todayCount >= int64(it.LimitPerDay)
 
 		out = append(out, &entities.RedeemRow{
-			Source:         "redeem",
-			ID:             it.ItemID,
-			Name:           it.Name,
-			Emoji:          it.Emoji,
-			Category:       string(it.Category),
-			Note:           it.Note,
-			Price:          it.Price,
-			Plan:           plan,
-			CanRedeem:      plan.Affordable && !blockedByLimit,
-			Description:    entities.DescribeRedeemPayment(plan.CouponPaid, plan.PointsPaid),
-			BlockedByLimit: blockedByLimit,
-			TodayCount:     todayCount,
-			RemainingToday: remainingToday,
-			Once:           it.Once,
-			Stock:          it.Stock,
+			Source:          "redeem",
+			ID:              it.ItemID,
+			Name:            it.Name,
+			Emoji:           it.Emoji,
+			Category:        string(it.Category),
+			Note:            it.Note,
+			Price:           it.Price,
+			Plan:            plan,
+			CanRedeem:       plan.Affordable && !blockedByLimit,
+			Description:     entities.DescribeRedeemPayment(plan.CouponPaid, plan.PointsPaid),
+			BlockedByLimit:  blockedByLimit,
+			TodayCount:      todayCount,
+			RemainingToday:  remainingToday,
+			Once:            it.Once,
+			Stock:           it.Stock,
+			Archived:        it.Archived,
+			LimitPerDay:     it.LimitPerDay,
+			CreatedByParent: it.CreatedByParent,
+			CreatedAt:       it.CreatedAt,
+			UpdatedAt:       it.UpdatedAt,
+			Visible:         visible,
 		})
 	}
 

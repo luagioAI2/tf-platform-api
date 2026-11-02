@@ -130,7 +130,12 @@ func (c *RedeemAPI) ListItems(ctx *gin.Context) {
 
 	// 心愿商品由 ListItems 内部混入（「定价 = 上架」），
 	// 返回的行带 source 区分来源，但**排在同一个列表里**。
-	list, err := c.Srv.ListItems(ctx.Request.Context(), uid, req.IncludeArchived)
+	//
+	// `raw` 隐含 `include_archived`：镜像的语义是「把服务端那张表原样搬走」，
+	// 少了已下架的行，家长会在管理页里看到自己的东西凭空少一条。
+	list, err := c.Srv.ListItems(
+		ctx.Request.Context(), uid, req.IncludeArchived || req.Raw, req.Raw,
+	)
 	if err != nil {
 		ginx.RespErr(ctx, err)
 		return

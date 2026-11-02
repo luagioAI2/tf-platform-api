@@ -41,6 +41,19 @@ type UpdateRedeemItemReq struct {
 type ListRedeemItemReq struct {
 	// IncludeArchived 是否包含已下架（家长端用）
 	IncludeArchived bool `json:"include_archived"`
+
+	// Raw 不做「换过 / 缺货」过滤，把商品原样全给出来。
+	//
+	// 用途只有一个：**客户端把商城镜像到本机**（`kid-quest-farm-online`
+	// 的在线版，家长管理页要看到「一次性 · 已换过」的那件东西）。
+	//
+	// ⚠️ 默认的过滤是**给孩子看的口径**，缺了它家长会以为商品被删了：
+	// 一次性商品换过之后，默认列表里就再也找不到它，而兑换记录还在 ——
+	// 家长的下一个动作通常是「重新建一个」，于是同一件东西建了两条。
+	//
+	// Raw = true 时每行带 `visible`（现在该不该出现在孩子的列表里），
+	// 由客户端自己决定怎么展示，服务端不再替它删行。
+	Raw bool `json:"raw"`
 }
 
 // RedeemItemView 商品视图（附带可换性判断）

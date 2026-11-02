@@ -53,6 +53,23 @@ type RedeemRow struct {
 	Once           bool  `json:"once,omitempty"`
 	Stock          int   `json:"stock,omitempty"`
 
+	// ---- 仅 redeem 来源 · 客户端镜像用的原样字段 ----
+	//
+	// 这一组只在 `raw: true` 时有意义（见 `ListRedeemItemReq.Raw`）：
+	// 客户端要把商城整张表搬到本机，就必须拿到**服务端那一行本身**，
+	// 而不是「算给孩子看的视图」。少了任何一个字段的表现都是静默的：
+	//   - 缺 `LimitPerDay` → 孩子看到「不限次数」，点了被服务端拒绝；
+	//   - 缺 `Archived`    → 家长下架的东西在自己的管理页里「不见了」；
+	//   - 缺 `Visible`     → 客户端只能自己猜「换过的一次性商品要不要显示」，
+	//                        猜错就是两个真相。
+	Archived        bool  `json:"archived"`
+	LimitPerDay     int   `json:"limit_per_day"`
+	CreatedByParent bool  `json:"created_by_parent"`
+	CreatedAt       int64 `json:"created_at"`
+	UpdatedAt       int64 `json:"updated_at"`
+	// Visible 现在该不该出现在**孩子**的列表里（raw 模式下由服务端算好）
+	Visible bool `json:"visible"`
+
 	// ---- 仅 wish 来源 ----
 	Kind        WishKind `json:"kind,omitempty"`
 	PartnerName string   `json:"partner_name,omitempty"`
