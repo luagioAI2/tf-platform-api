@@ -362,3 +362,55 @@ GORM 不会把计算结果回写到 Go 结构体。
 违反 `AGENTS.md` 的「禁止无界 goroutine」红线。
 
 **修复**：改成同步执行（只是一条带索引的 DELETE，开销可忽略）。
+
+### 8.4 保留策略和卸载一直在「假删」（已修复，2026-11-02）
+
+**现象**：`/game/kv/usage` 上看不出任何异常，`/game/snapshot/list` 也一切正常 ——
+但库里 `game_kv_snapshot` 的行数只增不减。
+
+**原因**：`GameKvSnapshot` 内嵌 `BaseModel`（有 `gorm.DeletedAt`），
+而仓储里两处删除写的是裸的 `Delete`：
+
+```go
+tx.Delete(&entities.GameKvSnapshot{})          // 保留策略（DeleteOldest）
+r.DB.Where(...).Delete(&entities.GameKvSnapshot{})  // 卸载（DeleteGame）
+```
+
+GORM 把它们翻译成 `UPDATE ... SET deleted_at = now()` —— **只写了一个时间戳**，
+`value` 那一列（整份存档，KB 级）原封不动留在表里。
+
+**为什么一直没被发现**：
+
+- 读取侧（`List` / `GetLatest` / `GetLatestBefore` / `CountByKey`）都被 GORM
+  自动加了 `deleted_at IS NULL`，所以**行为完全正确**：
+  保留 20 个就是 20 个，卸载后 `list` 也是空的。
+- 现有的 `TestSnapshotRetention` 断的正是 `CountByKey` ——
+  软删对它来说就是「删了」，所以**这条断言永远是绿的**。
+
+**后果**：
+
+1. 「每 key 只留 20 个」的目的就是省空间，结果**一个字节都没省**。
+   按「十分钟一个 + 日切基线」攒一年，一个用户一款游戏就是几十 MB 僵尸行；
+   `SnapshotMaxPerUser = 2000` 的硬上限也因此失效（它数的是活行）。
+2. 卸载的语义是「连存档一起删掉，重装不捡旧的」，但快照行还在表里 ——
+   只是读不出来。今天不出问题纯属侥幸：一旦哪天有人用 `Unscoped()` 查一遍
+   （导出、审计、后台工具），删掉的存档就全回来了。
+
+**修复**：两处删除都加 `Unscoped()`（硬删）。
+
+```go
+tx.Unscoped().Delete(&entities.GameKvSnapshot{})
+r.DB.WithContext(ctx).Where(...).Unscoped().Delete(&entities.GameKvSnapshot{})
+```
+
+快照是**可再生**的历史数据（不是账本），保留策略存在的意义就是释放空间，
+所以这里该硬删 —— 和 §7.13 对 `game_kv` 的结论一致。
+
+**回归断言**（断的是**物理行数**，`Unscoped()` 数；去掉修复就红）：
+
+- `TestSnapshotRetentionFreesDisk` —— 写 `SnapshotKeepPerKey + 10` 份，
+  表里必须只剩 ≤ keep+2 行（修复前是 30 行）；
+- `TestUninstallDropsSnapshotRows` —— 卸载后物理行数必须是 0（修复前是 2 行）。
+
+> 教训：**「删了」要看两种计数** —— 逻辑行数（读得出来吗）和物理行数（还占着吗）。
+> 软删让这两者分叉，而所有基于「读」的断言只看得到前者。

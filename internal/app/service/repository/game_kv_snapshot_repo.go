@@ -168,14 +168,34 @@ func (r *GameKvSnapshotRepository) DeleteOldest(ctx context.Context, uid uint, g
 	if len(keepIDs) > 0 {
 		tx = tx.Where("id NOT IN ?", keepIDs)
 	}
-	res := tx.Delete(&entities.GameKvSnapshot{})
+	/*
+	 * ⚠️ `Unscoped()` 不能少。
+	 *
+	 * `GameKvSnapshot` 内嵌了 `BaseModel`（有 `gorm.DeletedAt`），所以裸的
+	 * `Delete` 是**软删**：只写一个 `deleted_at`，`value` 那一列原封不动留在
+	 * 表里。读取侧（`List` / `GetLatestBefore` / `CountByKey`）都被 GORM
+	 * 自动加了 `deleted_at IS NULL`，所以**看起来一切正常** ——
+	 * 「保留最近 20 个」也确实是 20 个，只是**一个字节都没省下来**。
+	 *
+	 * 快照的 `value` 是整份存档（KB 级），按「十分钟一个 + 日切基线」攒一年，
+	 * 一个用户一款游戏就是几十 MB 的僵尸行。而 `/game/kv/usage` 只统计
+	 * `game_kv` 表，所以配额面板上一点都看不出来。
+	 *
+	 * ⇒ 快照是**可再生**的历史数据（不是账本），保留策略的目的就是省空间，
+	 *   所以这里必须硬删。同 §7.13 对 `game_kv` 的结论。
+	 */
+	res := tx.Unscoped().Delete(&entities.GameKvSnapshot{})
 	return res.RowsAffected, res.Error
 }
 
 // DeleteGame 删除某游戏的全部快照（卸载游戏）
 func (r *GameKvSnapshotRepository) DeleteGame(ctx context.Context, uid uint, gameID string) (int64, error) {
+	// ⚠️ 同样必须 `Unscoped()`：卸载的语义是「连存档一起删掉，重装不捡旧的」。
+	//    软删的话快照行还在，`restore-by-time` 一退就能把删掉的存档**复活**，
+	//    而界面上「卸载」那句话是骗人的。（读取侧看不出区别，所以不报错。）
 	res := r.DB.WithContext(ctx).
 		Where("uid = ? AND game_id = ?", uid, gameID).
+		Unscoped().
 		Delete(&entities.GameKvSnapshot{})
 	return res.RowsAffected, res.Error
 }

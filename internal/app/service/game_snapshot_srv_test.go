@@ -276,3 +276,75 @@ func TestRestoreByTime(t *testing.T) {
 		t.Fatalf("expected A, got %s", restored.Value)
 	}
 }
+
+/*
+ * ============================ 保留策略真的省空间吗 ============================
+ *
+ * `TestSnapshotRetention` 断的是 `CountByKey` —— 而 GORM 给带
+ * `gorm.DeletedAt` 的模型自动加 `deleted_at IS NULL`，所以**软删也算「删了」**。
+ * 结果是：保留策略把行「删」了 20 次，表里的 `value` 一个字节都没少，
+ * 而那条断言照样绿。
+ *
+ * 下面这两条断言的是**物理行数**（`Unscoped()`），也就是「空间有没有真的还回来」。
+ * 去掉仓储里那两个 `Unscoped()` 就会红。
+ */
+
+func TestSnapshotRetentionFreesDisk(t *testing.T) {
+	svc, _ := newSnapshotTestService(t)
+	ctx := context.Background()
+	const uid = uint(7)
+
+	for i := 0; i < entities.SnapshotKeepPerKey+10; i++ {
+		_, err := svc.Create(ctx, uid, "cloudfarm", "save",
+			`{"i":`+itoaUint(uint(i))+`}`, int64(i+1), entities.SnapshotReasonAuto, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(300 * time.Millisecond) // 等异步清理
+
+	var physical int64
+	if err := svc.DB.Unscoped().Model(&entities.GameKvSnapshot{}).
+		Where("uid = ? AND game_id = ? AND kv_key = ?", uid, "cloudfarm", "save").
+		Count(&physical).Error; err != nil {
+		t.Fatal(err)
+	}
+	if physical > int64(entities.SnapshotKeepPerKey)+2 {
+		t.Fatalf("保留策略没真的删掉：表里还剩 %d 行（软删的尸体，value 还占着空间），期望 <= %d",
+			physical, entities.SnapshotKeepPerKey+2)
+	}
+}
+
+// TestUninstallDropsSnapshotRows 卸载之后快照行必须**物理消失**，
+// 否则「卸载会连存档一起删掉」这句话是骗人的（软删的行只是读不出来）。
+func TestUninstallDropsSnapshotRows(t *testing.T) {
+	svc, _ := newSnapshotTestService(t)
+	ctx := context.Background()
+	const uid = uint(8)
+
+	for _, k := range []string{"save", "bag"} {
+		if _, err := svc.Create(ctx, uid, "cloudfarm", k, `{"lv":1}`, 1,
+			entities.SnapshotReasonManual, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	n, err := svc.DeleteGameSnapshots(ctx, uid, "cloudfarm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Fatalf("删除条数 = %d，期望 2", n)
+	}
+
+	var physical int64
+	if err := svc.DB.Unscoped().Model(&entities.GameKvSnapshot{}).
+		Where("uid = ? AND game_id = ?", uid, "cloudfarm").
+		Count(&physical).Error; err != nil {
+		t.Fatal(err)
+	}
+	if physical != 0 {
+		t.Fatalf("卸载后表里还有 %d 行（软删的尸体）", physical)
+	}
+}
