@@ -632,3 +632,79 @@ func TestRegisterWithoutCodeRejectsTakenMobile(t *testing.T) {
 		t.Errorf("期望 MobileAlreadyReg，实际 %v", err)
 	}
 }
+
+// TestGuestCannotSpendCouponInTransaction 事务版入口也得挡。
+//
+// 兑换商城、心愿商城扣券走的是 `ChangeWithTx`，和 `Change` 是**两个函数**，
+// 闸门都挂在 `guardGuestSpend` 上。可原来只有 `Change` 有测试 ——
+// 哪天有人重构时把 `ChangeWithTx` 的 guard 漏掉（或者复制一份忘了带），
+// 兑换和心愿就对游客静默放开了：券照扣、人还是游客，
+// 而「游客不能花券」这个承诺的全部意义就是**别让他花钱之后才发现东西带不走**。
+//
+// 顺便把「花积分照旧放行」也钉住：拦错了等于孩子玩不了，
+// 那种「改坏了两头都错」的改动只测一头是发现不了的。
+func TestGuestCannotSpendCouponInTransaction(t *testing.T) {
+	f := newGuestFixture(t)
+	ctx := context.Background()
+
+	resp, err := f.auth.GuestLogin(ctx, "device-ffffffff-0007", "127.0.0.1", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	uid := resp.User.UID
+	f.creditCoupon(t, uid, 4)
+	if _, _, err := f.walletSrv.Change(ctx, repository.BalanceChange{
+		UID:      uid,
+		Currency: entities.CurrencyPoints,
+		Delta:    100,
+		Source:   entities.SourceTaskReward,
+	}); err != nil {
+		t.Fatalf("发积分失败: %v", err)
+	}
+
+	// 花券：必须被拦，而且整个事务要回滚
+	err = f.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		_, _, e := f.walletSrv.ChangeWithTx(ctx, tx, repository.BalanceChange{
+			UID:            uid,
+			Currency:       entities.CurrencyCoupon,
+			Delta:          -1,
+			Source:         entities.SourceRedeemCoupon,
+			IdempotencyKey: "probe-tx-coupon-1",
+		})
+		return e
+	})
+	if err == nil {
+		t.Fatal("游客在事务里扣券没被拦住")
+	}
+	if !apperrors.Is(err, apperrors.GuestNeedBind) {
+		t.Fatalf("期望 GuestNeedBind，实际 %v", err)
+	}
+	w, err := f.walletSrv.GetWallet(ctx, uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Coupon != 4 {
+		t.Errorf("被拦下之后券余额应该还是 4，实际 %d", w.Coupon)
+	}
+
+	// 花积分：照旧放行（不然孩子玩不了）
+	err = f.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		_, _, e := f.walletSrv.ChangeWithTx(ctx, tx, repository.BalanceChange{
+			UID:            uid,
+			Currency:       entities.CurrencyPoints,
+			Delta:          -30,
+			Source:         entities.SourceFarmPlant,
+			IdempotencyKey: "probe-tx-points-1",
+		})
+		return e
+	})
+	if err != nil {
+		t.Fatalf("游客在事务里花积分不该被拦: %v", err)
+	}
+	if w, err = f.walletSrv.GetWallet(ctx, uid); err != nil {
+		t.Fatal(err)
+	}
+	if w.Points != 70 {
+		t.Errorf("扣 30 积分后应该剩 70，实际 %d", w.Points)
+	}
+}
