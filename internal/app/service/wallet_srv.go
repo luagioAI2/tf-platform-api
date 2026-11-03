@@ -17,8 +17,16 @@ import (
 
 var WalletServiceSet = wire.NewSet(ProvideWalletService)
 
-// 注册赠送积分
-const RegisterGiftPoints int64 = 100
+// RegisterGiftPoints 注册赠送积分。
+//
+// 2026-11-03 从 100 改成 0：游客账号是「进来就能玩」的，一个设备号就能开一个，
+// 送 100 分等于给了一条刷分通道（虽然只能买游戏，但账面上一眼看不出真假）。
+// 而且新号一上来就有分，孩子不会去挣 —— 这套产品的核心是「挣了才有」。
+// 现在所有账号（含手机号注册）都从 0 开始。
+//
+// 保留这个常量而不是删掉，是为了留下「这里曾经有过一笔赠送」的痕迹：
+// 老账号的流水里还有 `register_gift` 行，对账时能对上。
+const RegisterGiftPoints int64 = 0
 
 // WalletService 钱包服务：余额查询、记账、对账
 type WalletService struct {
@@ -105,10 +113,75 @@ func (s *WalletService) Balance(ctx context.Context, uid uint, currency entities
 	return 0, apperrors.WithCode(apperrors.CurrencyNotSupported)
 }
 
+// EnsureCanSpendCoupon 游客不能扣兑换券；能扣就返回 nil。
+//
+// 给「绕过 WalletService.Change 直接写仓储」的调用点用（目前只有农场）：
+// 农场的账本条目是客户端整包提交的，currency 由客户端挑，所以那条通道
+// 同样得挡 —— 农场自己的玩法只花积分。
+func (s *WalletService) EnsureCanSpendCoupon(ctx context.Context, uid uint) error {
+	guest, err := s.Repo.IsGuestUser(ctx, uid)
+	if err != nil {
+		// 读失败不拦：唯一后果是「游客偶尔花掉一张券」，
+		// 而误拦的后果是「正常用户兑不了东西」且看到的是「系统错误」。
+		logger.ZWarn("guest check failed, allow coupon spend",
+			zap.Uint("uid", uid), zap.Error(err))
+		return nil
+	}
+	if guest {
+		return apperrors.WithCode(apperrors.GuestNeedBind)
+	}
+	return nil
+}
+
+// guardGuestSpend 游客扣券的闸门。
+//
+// ## 为什么拦在钱包这一层，而不是拦在「兑换」按钮上
+//
+// 花券的地方有五处（兑换商城、心愿单、币换券、游戏内消费、农场提交的账本），
+// 以后还会加。拦按钮等于每加一处就要记得登记一次，漏一处就是「游客把券花掉了」
+// —— 而券是家长真金白银换来的，漏了没有任何界面会露出来。
+// Change / ChangeWithTx 是所有扣币的唯一入口，拦在这里一处顶五处。
+//
+// ## 只拦「券」，不拦「积分」
+//
+// 积分是游戏内货币：买种子、买动物、买游戏都靠它。游客不能花积分等于不能玩
+// （农场进去第一件事就是买种子）。券才是要落到现实里的那个东西，卡在这里。
+//
+// ## 为什么不是「游客不能有券」
+//
+// 农场卖产出**得**券、插件也能发券。禁止入账会把农场的核心循环打断，而且
+// 那些券本来就是孩子挣的。卡在「花」这一刻，正好是家长该出场的时候。
+func (s *WalletService) guardGuestSpend(ctx context.Context, c repository.BalanceChange, tx *gorm.DB) error {
+	if c.Delta >= 0 || c.Currency != entities.CurrencyCoupon {
+		return nil
+	}
+	var (
+		guest bool
+		err   error
+	)
+	if tx != nil {
+		guest, err = s.Repo.IsGuestUserWithTx(ctx, tx, c.UID)
+	} else {
+		guest, err = s.Repo.IsGuestUser(ctx, c.UID)
+	}
+	if err != nil {
+		logger.ZWarn("guest check failed, allow coupon spend",
+			zap.Uint("uid", c.UID), zap.Error(err))
+		return nil
+	}
+	if guest {
+		return apperrors.WithCode(apperrors.GuestNeedBind)
+	}
+	return nil
+}
+
 // Change 变更余额（统一入口）。
 //
 // 所有发币/扣币都必须走这里，不要直接操作 Repository。
 func (s *WalletService) Change(ctx context.Context, c repository.BalanceChange) (int64, *entities.LedgerEntry, error) {
+	if err := s.guardGuestSpend(ctx, c, nil); err != nil {
+		return 0, nil, err
+	}
 	balance, entry, err := s.Repo.ApplyChange(ctx, c)
 	switch {
 	case errors.Is(err, repository.ErrInsufficientBalance):
@@ -261,6 +334,9 @@ func (s *WalletService) ImportLegacy(ctx context.Context, uid uint, req *entitie
 //
 // 用于「扣积分 + 记游戏币」这类必须原子完成的场景。
 func (s *WalletService) ChangeWithTx(ctx context.Context, tx *gorm.DB, c repository.BalanceChange) (int64, *entities.LedgerEntry, error) {
+	if err := s.guardGuestSpend(ctx, c, tx); err != nil {
+		return 0, nil, err
+	}
 	balance, entry, err := s.Repo.ApplyChangeWithTx(ctx, tx, c)
 	switch {
 	case errors.Is(err, repository.ErrInsufficientBalance):

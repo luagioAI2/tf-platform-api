@@ -93,6 +93,19 @@ func (s *FarmService) Save(
 		if err := validateFarmClaim(c); err != nil {
 			return nil, err
 		}
+		// 游客不能扣券。农场自己的玩法只花积分（种子/动物/地块），
+		// 但 currency 是客户端整包提交的，所以这条通道同样得挡 ——
+		// 这里直接写 WalletRepo，绕过了 WalletService 的闸门。
+		// 放在事务外查：事务里再要一条连接会跟事务抢池子。
+		if c.Currency == string(entities.CurrencyCoupon) && c.Delta < 0 {
+			guest, err := s.WalletRepo.IsGuestUser(ctx, uid)
+			if err != nil {
+				return nil, apperrors.WithError(err)
+			}
+			if guest {
+				return nil, apperrors.WithCode(apperrors.GuestNeedBind)
+			}
+		}
 	}
 
 	var (

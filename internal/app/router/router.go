@@ -123,6 +123,17 @@ func (a *Router) registerAPI(app *gin.Engine) {
 			}),
 			a.AuthAPI.SendSmsCode,
 		)
+		// 游客进入：新用户没耐心，先给一个不用注册的账号。
+		// 单独限流（按 IP 每分钟 10 次）：这是**建号**接口，一个设备号一个号，
+		// 放开等于让人批量造账号。
+		authGroup.POST("/guest",
+			middleware.RateLimitMiddleware(a.Limiter, middleware.RateLimitConfig{
+				Name:   "guest",
+				Limit:  10,
+				Window: time.Minute,
+			}),
+			a.AuthAPI.GuestLogin,
+		)
 		authGroup.POST("/register", a.AuthAPI.Register)
 		authGroup.POST("/login", a.AuthAPI.Login)
 		authGroup.POST("/sms-login", a.AuthAPI.SmsLogin)

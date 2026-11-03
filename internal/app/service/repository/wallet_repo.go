@@ -130,6 +130,33 @@ var ErrInsufficientBalance = errors.New("insufficient balance")
 // ErrDuplicateLedger 重复记账（幂等命中）
 var ErrDuplicateLedger = errors.New("duplicate ledger entry")
 
+// IsGuestUser 这个 uid 是不是游客账号。
+//
+// 为什么放在钱包仓储里、而不是给 WalletService 注入 UserRepository：
+// 这里只读一列、且只在**扣券**这一条路上被调用，为它多引一条 wire 依赖
+// 会让依赖图多一圈（UserRepository → … → WalletService 本来就在同一层）。
+// 真要跨域查用户资料，仍然应该走 UserRepository。
+func (r *WalletRepository) IsGuestUser(ctx context.Context, uid uint) (bool, error) {
+	return r.isGuestUser(ctx, r.DB.WithContext(ctx), uid)
+}
+
+// IsGuestUserWithTx 同上，但在给定事务内查。
+//
+// ⚠️ 事务里**必须**用这个：走 IsGuestUser 会向外层连接池再要一条连接，
+// 而第一条已经被事务占着 —— 池子一满就死锁（本项目在回档逻辑上踩过一次，
+// 测试挂死 600 秒）。
+func (r *WalletRepository) IsGuestUserWithTx(ctx context.Context, tx *gorm.DB, uid uint) (bool, error) {
+	return r.isGuestUser(ctx, tx.WithContext(ctx), uid)
+}
+
+func (r *WalletRepository) isGuestUser(ctx context.Context, db *gorm.DB, uid uint) (bool, error) {
+	var n int64
+	err := db.Model(&entities.User{}).
+		Where("id = ? AND is_guest = ?", uid, true).
+		Count(&n).Error
+	return n > 0, err
+}
+
 // ApplyChange 原子地变更余额并记账。
 //
 // 返回 (变动后余额, 账本条目, error)。

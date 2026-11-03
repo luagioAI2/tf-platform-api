@@ -274,6 +274,101 @@ func (s *AuthService) Register(ctx context.Context, req *entities.RegisterReq, i
 	return resp, nil
 }
 
+// ============================ 游客 ============================
+
+// guestNickname 游客账号的默认昵称。
+//
+// 不用「游客 8823」这种带数字的：孩子看得懂「小客人」，看不懂编号；
+// 而且编号会让人以为这是个正经账号，就不去绑手机号了。
+const guestNickname = "小客人"
+
+// deviceIDRe 设备号的字符白名单。
+//
+// 这个值要进唯一索引、进日志、进风控，别让它带奇怪字符。客户端生成的是
+// UUID（36 位、含 `-`），这里放宽到 8~64 位的字母数字与 `_` `-`。
+var deviceIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{8,64}$`)
+
+// GuestLogin 游客进入：按设备号建号或取号。
+//
+// ## 为什么要这个东西
+//
+// 新用户没耐心：一进门就要手机号 + 验证码，多半直接关掉。所以先给一个
+// 「不用注册也能玩」的账号；等他玩出东西了（挣到券、想兑换），再让他绑
+// 手机号把进度存下来。
+//
+// ## 为什么认设备号，不认 IP
+//
+// IP 会变（切 WiFi、走 4G 基站），认 IP 等于每次换网就换一个账号。
+// 设备号是客户端首次启动生成、存在本机的一个随机串。
+//
+// ## 为什么绑了手机号之后不清 device_id
+//
+// 清了的话，这台设备下次冷启动（本地 session 过期、又没登录）会再起一个
+// 新账号，刚绑好的那份进度就成孤儿了 —— 用户看到的是「我的东西没了」。
+// 保留 ⇒ 同一个设备号永远指向同一个 uid，绑定只是给这个 uid 加了个手机号。
+//
+// ## 安全边界
+//
+// 设备号就是这把钥匙：拿到它就能拿到这个账号。所以
+//   - 客户端必须存在本机私有目录（不进备份、不进导出包）；
+//   - 它不出现在任何接口响应里（`json:"-"`）；
+//   - 账号一旦绑了手机号，**真正的身份**是手机号，设备号只是「这台设备
+//     上次用的是谁」的便利贴；找回走手机号 + 验证码。
+func (s *AuthService) GuestLogin(ctx context.Context, deviceID, ip, ua string) (*entities.LoginResp, error) {
+	deviceID = strings.TrimSpace(deviceID)
+	if !deviceIDRe.MatchString(deviceID) {
+		return nil, apperrors.WithCode(apperrors.InvalidParam)
+	}
+
+	user, err := s.UserRepo.GetByDeviceID(ctx, deviceID)
+	if err != nil {
+		return nil, apperrors.WithError(err)
+	}
+	if user != nil {
+		if !user.IsActive() {
+			return nil, apperrors.WithCode(apperrors.AccountDisabled)
+		}
+		return s.issueTokens(ctx, user, ip, ua, deviceID)
+	}
+
+	user = &entities.User{
+		DeviceID:    deviceID,
+		Nickname:    guestNickname,
+		Status:      entities.UserStatusActive,
+		RegisterIP:  ip,
+		LastLoginIP: ip,
+		LastLoginAt: time.Now().Unix(),
+		Language:    "zh",
+		IsGuest:     true,
+	}
+	if err := s.UserRepo.Create(ctx, user); err != nil {
+		if !isDuplicateKey(err) {
+			return nil, apperrors.WithError(err)
+		}
+		// 并发：同一个设备号两个请求同时到，另一个先建好了 —— 读回来接着用。
+		// （device_id 上有唯一索引，所以这里不会出现两个账号指向同一台设备。）
+		user, err = s.UserRepo.GetByDeviceID(ctx, deviceID)
+		if err != nil {
+			return nil, apperrors.WithError(err)
+		}
+		if user == nil {
+			return nil, apperrors.WithCode(apperrors.OperationFailed)
+		}
+		return s.issueTokens(ctx, user, ip, ua, deviceID)
+	}
+
+	if err := s.WalletSrv.InitWallet(ctx, user.ID); err != nil {
+		logger.ZError("init wallet failed", zap.Uint("uid", user.ID), zap.Error(err))
+	}
+
+	resp, err := s.issueTokens(ctx, user, ip, ua, deviceID)
+	if err != nil {
+		return nil, err
+	}
+	resp.IsNewUser = true
+	return resp, nil
+}
+
 // ============================ 登录 ============================
 
 // Login 手机号 + 密码登录
@@ -450,35 +545,63 @@ func (s *AuthService) WechatLogin(ctx context.Context, req *entities.WechatLogin
 	return resp, nil
 }
 
-// BindMobile 微信用户绑定手机号
-func (s *AuthService) BindMobile(ctx context.Context, uid uint, req *entities.BindMobileReq) error {
+// BindMobile 绑定手机号（游客转正 / 微信用户补手机号）。
+//
+// ## 为什么是「同一个 uid」而不是合并账号
+//
+// 只往这一行上加 mobile / password / is_guest，积分、流水、农场、存档、
+// 家长设置全都不动。所以游客绑完之后进度原地还在，不需要任何迁移 ——
+// 反过来说，如果哪天要「把游客账号并进一个已存在的手机号账号」，
+// 那就是另一件事（要搬两张账本 + 所有 uid 外键），别顺手做。
+//
+// ## 返回最新资料
+//
+// 客户端绑完要立刻把界面从「临时账号」切成「已保存」，多一次
+// `/user/profile` 往返不值当，而且中间那一帧会闪。
+func (s *AuthService) BindMobile(ctx context.Context, uid uint, req *entities.BindMobileReq) (*entities.UserInfo, error) {
 	mobile := normalizeMobile(req.Mobile)
 
 	if err := s.verifySmsCode(ctx, mobile, entities.SmsSceneBindMobile, req.Code); err != nil {
-		return err
+		return nil, err
 	}
 
 	// 手机号是否已被其他账号占用
 	other, err := s.UserRepo.GetByMobile(ctx, mobile)
 	if err != nil {
-		return apperrors.WithError(err)
+		return nil, apperrors.WithError(err)
 	}
 	if other != nil && other.ID != uid {
-		return apperrors.WithCode(apperrors.MobileAlreadyReg)
+		return nil, apperrors.WithCode(apperrors.MobileAlreadyReg)
 	}
 
 	fields := map[string]interface{}{
 		"mobile":          mobile,
 		"mobile_verified": true,
+		// 绑完就不是游客了。扣券闸门、后台的游客筛选、「保存进度」提示
+		// 全靠这个字段，漏了这一行 ⇒ 绑完了还是「临时账号」，用户会
+		// 反复被要求绑定。
+		// ⚠️ device_id **不清**：清了这台设备下次冷启动会另起一个号。
+		"is_guest": false,
 	}
 	if req.Password != "" {
 		hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 		if err != nil {
-			return apperrors.WithError(err)
+			return nil, apperrors.WithError(err)
 		}
 		fields["password"] = string(hash)
 	}
-	return s.UserRepo.Update(ctx, uid, fields)
+	if err := s.UserRepo.Update(ctx, uid, fields); err != nil {
+		return nil, apperrors.WithError(err)
+	}
+
+	user, err := s.UserRepo.GetByID(ctx, uid)
+	if err != nil {
+		return nil, apperrors.WithError(err)
+	}
+	if user == nil {
+		return nil, apperrors.WithCode(apperrors.UserNotExist)
+	}
+	return s.buildUserInfo(ctx, user), nil
 }
 
 // ============================ 令牌 ============================
@@ -509,7 +632,9 @@ func (s *AuthService) issueTokens(ctx context.Context, user *entities.User, ip, 
 		UID:          user.ID,
 		RefreshToken: refreshToken,
 		ExpireAt:     now + int64(refreshTTL.Seconds()),
-		Device:       device,
+		// 设备号最长 64（游客用它认设备），而 device 列是 32 —— 不截断的话
+		// 换成 MySQL 会直接写失败，SQLite 则默默存进去，两种都不好查。
+		Device: truncate(device, 32),
 		UserAgent:    truncate(ua, 255),
 		IP:           ip,
 	}
@@ -520,29 +645,34 @@ func (s *AuthService) issueTokens(ctx context.Context, user *entities.User, ip, 
 	// 更新登录信息
 	_ = s.UserRepo.UpdateLoginInfo(ctx, user.ID, ip, now)
 
-	// 组装用户信息
-	hasPassword := user.Password != ""
-	hasWechat, _ := s.OAuthRepo.HasProvider(ctx, user.ID, entities.OAuthProviderWechat)
-
 	return &entities.LoginResp{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 		ExpiresIn:    int64(accessTTL.Seconds()),
-		User: &entities.UserInfo{
-			UID:            user.ID,
-			Username:       user.Username,
-			Mobile:         maskMobile(user.Mobile),
-			MobileVerified: user.MobileVerified,
-			Nickname:       user.Nickname,
-			Avatar:         user.Avatar,
-			Gender:         user.Gender,
-			Language:       user.Language,
-			IsGuest:        user.IsGuest,
-			HasPassword:    hasPassword,
-			HasWechat:      hasWechat,
-			CreatedAt:      user.CreatedAt,
-		},
+		User:         s.buildUserInfo(ctx, user),
 	}, nil
+}
+
+// buildUserInfo 组装对外的用户信息（不含敏感字段）。
+//
+// 抽出来是因为「绑定手机号」之后也要立刻回一份同样的结构，
+// 两处各写一遍迟早会漏字段（比如 is_guest）。
+func (s *AuthService) buildUserInfo(ctx context.Context, user *entities.User) *entities.UserInfo {
+	hasWechat, _ := s.OAuthRepo.HasProvider(ctx, user.ID, entities.OAuthProviderWechat)
+	return &entities.UserInfo{
+		UID:            user.ID,
+		Username:       user.Username,
+		Mobile:         maskMobile(user.Mobile),
+		MobileVerified: user.MobileVerified,
+		Nickname:       user.Nickname,
+		Avatar:         user.Avatar,
+		Gender:         user.Gender,
+		Language:       user.Language,
+		IsGuest:        user.IsGuest,
+		HasPassword:    user.Password != "",
+		HasWechat:      hasWechat,
+		CreatedAt:      user.CreatedAt,
+	}
 }
 
 // Refresh 用 refresh token 换新的 access token

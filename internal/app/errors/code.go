@@ -46,6 +46,12 @@ const (
 	SmsSendTooOften      = 10010701 // 短信发送过于频繁
 	SmsSendFailed        = 10010702 // 短信发送失败
 	MobileNotBind        = 10010801 // 未绑定手机号
+	// GuestNeedBind 游客账号要花兑换券 / 兑实物，得先绑定手机号。
+	//
+	// 不复用 MobileNotBind：那个码的含义是「微信用户还没绑手机」，
+	// 前端见到它只会提示去绑；这里的语义是「这一步得有个能找回的账号」，
+	// 前端要弹的是「保存进度」，措辞和落点都不一样。
+	GuestNeedBind = 10010802
 	WechatAuthFailed     = 10010901 // 微信授权失败
 	WechatAlreadyBind    = 10010902 // 微信已绑定其他账号
 	AccountNotBindWechat = 10010903 // 账号未绑定微信
@@ -202,6 +208,7 @@ var ErrCodeMsg = map[int]string{
 	SmsSendTooOften:      "sms-send-too-often",
 	SmsSendFailed:        "sms-send-failed",
 	MobileNotBind:        "mobile-not-bound",
+	GuestNeedBind:        "guest-need-bind",
 	WechatAuthFailed:     "wechat-auth-failed",
 	WechatAlreadyBind:    "wechat-already-bound",
 	AccountNotBindWechat: "account-not-bind-wechat",

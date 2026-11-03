@@ -5,8 +5,9 @@ package entities
 // User 用户账号。
 //
 // 设计要点：
-//   - 支持三种登录方式：手机号+密码、微信 OAuth、游客（可选）
-//   - 手机号唯一；微信 openid/unionid 唯一
+//   - 支持四种进入方式：手机号+密码、手机号+验证码、微信 OAuth、游客
+//   - 手机号唯一（**空手机号不参与唯一**，见 Mobile 的 default:null）
+//   - 微信 openid/unionid 唯一
 //   - 密码用 bcrypt，禁止明文
 type User struct {
 	BaseModel
@@ -17,7 +18,14 @@ type User struct {
 	Password string `gorm:"column:password;size:72" json:"-"`
 
 	// Mobile 手机号（带国家码，如 +8613800138000）
-	Mobile string `gorm:"column:mobile;size:24;uniqueIndex" json:"mobile"`
+	//
+	// ⚠️ `default:null` 不是装饰，删掉会立刻炸。
+	// 游客没有手机号，而 mobile 上有唯一索引；GORM 对「没有 default 的
+	// string 零值」会老老实实写 `''`，于是**第二个游客**就撞唯一索引。
+	// 实测（2026-11-03）：`UNIQUE constraint failed: user.mobile`。
+	// 带上 default:null 后零值走「省略该列」⇒ 落库是 NULL ⇒ SQLite / MySQL
+	// 的唯一索引都允许多个 NULL，而真手机号的唯一性一点没松。
+	Mobile string `gorm:"column:mobile;size:24;uniqueIndex;default:null" json:"mobile"`
 	// MobileVerified 手机号是否已验证
 	MobileVerified bool `gorm:"column:mobile_verified;default:false" json:"mobile_verified"`
 
@@ -41,6 +49,16 @@ type User struct {
 
 	// IsGuest 是否游客账号
 	IsGuest bool `gorm:"column:is_guest;default:false;index" json:"is_guest"`
+
+	// DeviceID 游客账号「认设备」的凭据（客户端首次启动生成的随机串）。
+	//
+	// 用途只有一个：同一台设备再进来还是同一个人，不用重新起号。
+	// **它不是密码**——拿到它就能拿到这个账号，所以客户端必须存在本机
+	// 私有目录里；它也永远不出现在任何接口响应里（json:"-"）。
+	//
+	// 绑定手机号之后**要保留**：清掉的话，这台设备下次进来会另起一个
+	// 新账号，刚绑好的那份进度就成孤儿了。
+	DeviceID string `gorm:"column:device_id;size:64;uniqueIndex;default:null" json:"-"`
 }
 
 func (User) TableName() string { return "user" }

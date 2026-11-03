@@ -65,6 +65,35 @@ func (c *AuthAPI) Register(ctx *gin.Context) {
 	ginx.RespSucc(ctx, resp)
 }
 
+// GuestLogin 游客进入
+// @Tags Auth[认证]
+// @Summary 游客进入（免注册，按设备号建号或取号）
+// @Accept json
+// @Produce json
+// @Param req body entities.GuestLoginReq false "参数（device_id 也可走 X-Device-ID 头）"
+// @Success 200 {object} ginx.Resp{data=entities.LoginResp}
+// @Router /api/auth/guest [post]
+func (c *AuthAPI) GuestLogin(ctx *gin.Context) {
+	var req entities.GuestLoginReq
+	// 空 body 是合法的：设备号走请求头。绑不上就当没传，交给服务层判。
+	_ = ctx.ShouldBindJSON(&req)
+
+	deviceID := req.DeviceID
+	if deviceID == "" {
+		deviceID = ctx.GetHeader("X-Device-ID")
+	}
+
+	resp, err := c.Srv.GuestLogin(ctx.Request.Context(), deviceID,
+		ginx.GetClientIP(ctx),
+		ctx.GetHeader("User-Agent"))
+	if err != nil {
+		ginx.RespErr(ctx, err)
+		return
+	}
+	ginx.SetAuthTokens(ctx, resp.AccessToken, resp.RefreshToken)
+	ginx.RespSucc(ctx, resp)
+}
+
 // Login 密码登录
 // @Tags Auth[认证]
 // @Summary 手机号 + 密码登录
@@ -145,12 +174,12 @@ func (c *AuthAPI) WechatLogin(ctx *gin.Context) {
 
 // BindMobile 绑定手机号
 // @Tags Auth[认证]
-// @Summary 绑定手机号（微信用户）
+// @Summary 绑定手机号（游客转正 / 微信用户补手机号）
 // @Accept json
 // @Produce json
 // @Security ApiKeyAuth
 // @Param req body entities.BindMobileReq true "参数"
-// @Success 200 {object} ginx.Resp
+// @Success 200 {object} ginx.Resp{data=entities.UserInfo}
 // @Router /api/auth/bind-mobile [post]
 func (c *AuthAPI) BindMobile(ctx *gin.Context) {
 	uid, ok := ginx.MustMine(ctx)
@@ -162,11 +191,14 @@ func (c *AuthAPI) BindMobile(ctx *gin.Context) {
 		ginx.RespErr(ctx, err)
 		return
 	}
-	if err := c.Srv.BindMobile(ctx.Request.Context(), uid, &req); err != nil {
+	info, err := c.Srv.BindMobile(ctx.Request.Context(), uid, &req)
+	if err != nil {
 		ginx.RespErr(ctx, err)
 		return
 	}
-	ginx.RespSucc(ctx, gin.H{"bound": true})
+	// 直接回最新资料：客户端拿到 is_guest=false 就能立刻把界面切成「已保存」，
+	// 不用再打一次 /user/profile（那中间会闪一帧「临时账号」）。
+	ginx.RespSucc(ctx, info)
 }
 
 // Refresh 刷新令牌

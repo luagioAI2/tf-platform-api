@@ -68,6 +68,26 @@ func (r *UserRepository) GetByUsername(ctx context.Context, username string) (*e
 	return &u, nil
 }
 
+// GetByDeviceID 按设备标识查游客账号。
+//
+// 空字符串直接返回 nil：普通账号的 device_id 是 NULL，拿 "" 去查在 SQLite 里
+// 匹配不到任何行，但这个「匹配不到」是**偶然**的（换个数据库或换个默认值就
+// 可能变），所以显式挡掉，别让一个空设备号有机会命中别人。
+func (r *UserRepository) GetByDeviceID(ctx context.Context, deviceID string) (*entities.User, error) {
+	if deviceID == "" {
+		return nil, nil
+	}
+	var u entities.User
+	err := r.DB.WithContext(ctx).Where("device_id = ?", deviceID).First(&u).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
 // Update 更新用户（只更新非零字段）
 func (r *UserRepository) Update(ctx context.Context, uid uint, fields map[string]interface{}) error {
 	if len(fields) == 0 {

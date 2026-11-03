@@ -10,6 +10,14 @@ type RegisterReq struct {
 	Nickname string `json:"nickname" binding:"omitempty,max=32"`      // 昵称（可选，默认用手机号后 4 位）
 }
 
+// GuestLoginReq 游客进入（免注册、免验证码）。
+//
+// device_id 也可以走 `X-Device-ID` 请求头 —— 其它登录接口一直用这个头，
+// 客户端不必为这一个接口换个传法。
+type GuestLoginReq struct {
+	DeviceID string `json:"device_id" binding:"omitempty,max=64"`
+}
+
 // LoginReq 手机号 + 密码登录
 type LoginReq struct {
 	Mobile   string `json:"mobile" binding:"required,min=8,max=24"`

@@ -35,6 +35,7 @@ verify-code-too-many-attempts: "Too many incorrect attempts, please request a ne
 sms-send-too-often: "Code sent too frequently, please try again later"
 sms-send-failed: "Failed to send code, please try again later"
 mobile-not-bound: "Please bind a mobile number first"
+guest-need-bind: "Bind a mobile number to redeem rewards"
 wechat-auth-failed: "WeChat authorization failed, please try again"
 wechat-already-bound: "This WeChat account is already bound to another user"
 account-not-bind-wechat: "This account is not bound to WeChat"
