@@ -188,4 +188,10 @@ const (
 	GameKvMaxValueBytes = 1 << 20
 	// GameKvMaxKeysPerGame 单游戏单用户最多几个 key
 	GameKvMaxKeysPerGame = 64
+	// GameKvMaxTotalBytes 单用户所有游戏加起来的总大小上限（64MB）
+	//
+	// ⚠️ 这条以前**只出现在 `/game/kv/usage` 的 `max_bytes` 里**，
+	// 写入路径从不检查 —— 界面告诉家长「最多 64MB」，实际能存到 1GB 以上
+	// （1MB × 每游戏 64 个 key × 21 款）。现在由 `GameStorageService.Set` 拦。
+	GameKvMaxTotalBytes = 64 << 20
 )

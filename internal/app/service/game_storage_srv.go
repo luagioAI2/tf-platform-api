@@ -116,8 +116,12 @@ func (s *GameStorageService) Set(ctx context.Context, uid uint, gameID, key stri
 	}
 
 	// 体积校验
+	//
+	// ⚠️ 这里曾经返 `FileTooLarge`（10 03 文件域，那是**上传**用的码）。
+	// 文档 §6 一直写着 `10040601 存档过大`，客户端也按 10040601 做提示 ——
+	// 两边说的不是同一件事，而且没人看得出来（都是「太大」）。
 	if len(value) > entities.GameKvMaxValueBytes {
-		return 0, apperrors.WithCode(apperrors.FileTooLarge)
+		return 0, apperrors.WithCode(apperrors.GameKvTooLarge)
 	}
 	if len(value) == 0 {
 		return 0, apperrors.WithCode(apperrors.InvalidParam)
@@ -127,17 +131,33 @@ func (s *GameStorageService) Set(ctx context.Context, uid uint, gameID, key stri
 		return 0, apperrors.WithCode(apperrors.InvalidParam)
 	}
 
-	// 配额：单游戏 key 数量上限
-	if expectedVersion <= 0 {
+	// 当前那一行（下面两条配额都要用它的 size）
+	existing, err := s.KvRepo.Get(ctx, uid, gameID, key)
+	if err != nil {
+		return 0, apperrors.WithError(err)
+	}
+
+	// 配额 ①：单游戏 key 数量上限
+	//
+	// 只在「无锁路径 + 这是个新 key」时查：带 `expected_version` 的写必须命中
+	// 已存在的行（否则是版本冲突），不可能新增 key。
+	if expectedVersion <= 0 && existing == nil {
 		count, err := s.KvRepo.CountKeys(ctx, uid, gameID)
 		if err != nil {
 			return 0, apperrors.WithError(err)
 		}
-		// 已存在则不算新增
-		existing, _ := s.KvRepo.Get(ctx, uid, gameID, key)
-		if existing == nil && count >= entities.GameKvMaxKeysPerGame {
-			return 0, apperrors.WithCode(apperrors.InvalidParam)
+		if count >= entities.GameKvMaxKeysPerGame {
+			return 0, apperrors.WithCode(apperrors.GameKvKeyLimitExceeded)
 		}
+	}
+
+	// 配额 ②：单用户总量上限
+	var oldSize int64
+	if existing != nil {
+		oldSize = existing.Size
+	}
+	if err := s.checkTotalQuota(ctx, uid, oldSize, int64(len(value))); err != nil {
+		return 0, err
 	}
 
 	kv := &entities.GameKv{
@@ -164,6 +184,30 @@ func (s *GameStorageService) Set(ctx context.Context, uid uint, gameID, key stri
 	}
 
 	return kv.Version, nil
+}
+
+// checkTotalQuota 单用户总大小配额（文档 §3.3 的 64MB）。
+//
+// 判据是「**写完之后**的总量」，所以用 `total - 旧值 + 新值` 去比。
+// 代价是一次带 uid 索引的 SUM（`uk_uid_game_key` 的首列），行数被
+// 「单游戏 64 个 key」硬限住（21 款 × 64 ≈ 1300 行封顶）⇒ 可以放在写路径上。
+// 越写越小的写（`delta <= 0`）直接跳过，省掉这次 SUM。
+//
+// 超了复用 `GameKvTooLarge`：对客户端来说「这个值太大」和「账号满了」要做的
+// 事完全一样（都是「存不下，先清点东西」），多一个码只是多一处要对齐。
+func (s *GameStorageService) checkTotalQuota(ctx context.Context, uid uint, oldSize, newSize int64) error {
+	delta := newSize - oldSize
+	if delta <= 0 {
+		return nil
+	}
+	total, err := s.KvRepo.TotalSize(ctx, uid)
+	if err != nil {
+		return apperrors.WithError(err)
+	}
+	if total+delta > entities.GameKvMaxTotalBytes {
+		return apperrors.WithCode(apperrors.GameKvTooLarge)
+	}
+	return nil
 }
 
 // List 列出某游戏的全部键值（过滤保留键）。
@@ -237,7 +281,7 @@ func (s *GameStorageService) Usage(ctx context.Context, uid uint) (map[string]in
 	}
 	return map[string]interface{}{
 		"total_bytes": total,
-		"max_bytes":   int64(64) << 20, // 单用户 64MB 总配额
+		"max_bytes":   entities.GameKvMaxTotalBytes, // 单用户 64MB 总配额
 	}, nil
 }
 

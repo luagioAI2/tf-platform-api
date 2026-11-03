@@ -73,12 +73,15 @@ const (
 	GameNotPurchasable    = 10040501 // 该游戏不可购买
 	GameKvTooLarge        = 10040601 // 存档过大
 	GameKvVersionConflict = 10040701 // 存档版本冲突（多设备）
-	GameKvKeyReserved     = 10040801 // 保留键不可写
 	GameCoinInsufficient  = 10040901 // 游戏币不足
 	SnapshotNotExist      = 10041001 // 存档快照不存在
 	GameCoinRedeemClosed  = 10041201 // 这款游戏没有开放「币换券」
 	SettingsInvalid       = 10041301 // 设置内容不合法（不是 JSON 对象 / 空）
 	SettingsTooLarge      = 10041302 // 设置内容超过大小上限（带 %d，必须单独一个码）
+	// GameKvKeyLimitExceeded 单游戏 key 数量超上限。
+	// 原来这里返的是 InvalidParam「参数错误」—— 参数没错，是配额满了，
+	// 插件作者照着「参数错误」查半天查不到原因。
+	GameKvKeyLimitExceeded = 10041401 // 单游戏 key 数量超出上限
 )
 
 // ============================ 农场域 10 11 xx xx ============================
@@ -209,19 +212,19 @@ var ErrCodeMsg = map[int]string{
 	BalanceConflict:       "balance-conflict",
 	DuplicateLedgerEntry:  "duplicate-ledger-entry",
 
-	GameNotExist:          "game-not-exist",
-	GameOffline:           "game-offline",
-	GameAlreadyOwned:      "game-already-owned",
-	GameNotOwned:          "game-not-owned",
-	GameNotPurchasable:    "game-not-purchasable",
-	GameKvTooLarge:        "game-kv-too-large",
-	GameKvVersionConflict: "game-kv-version-conflict",
-	GameKvKeyReserved:     "game-kv-key-reserved",
-	GameCoinInsufficient:  "game-coin-insufficient",
-	SnapshotNotExist:      "snapshot-not-exist",
-	GameCoinRedeemClosed:  "game-coin-redeem-closed",
-	SettingsInvalid:       "settings-invalid",
-	SettingsTooLarge:      "settings-too-large",
+	GameNotExist:           "game-not-exist",
+	GameOffline:            "game-offline",
+	GameAlreadyOwned:       "game-already-owned",
+	GameNotOwned:           "game-not-owned",
+	GameNotPurchasable:     "game-not-purchasable",
+	GameKvTooLarge:         "game-kv-too-large",
+	GameKvVersionConflict:  "game-kv-version-conflict",
+	GameCoinInsufficient:   "game-coin-insufficient",
+	SnapshotNotExist:       "snapshot-not-exist",
+	GameCoinRedeemClosed:   "game-coin-redeem-closed",
+	SettingsInvalid:        "settings-invalid",
+	SettingsTooLarge:       "settings-too-large",
+	GameKvKeyLimitExceeded: "game-kv-key-limit-exceeded",
 
 	FarmStateTooLarge:  "farm-state-too-large",
 	FarmStateConflict:  "farm-state-conflict",
