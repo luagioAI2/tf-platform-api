@@ -1,0 +1,20 @@
+# 统一用 LF 入库与检出。
+#
+# 这台机器上 `core.autocrlf=true`：提交时转 LF、**检出时转回 CRLF**。
+# 于是同一份代码在不同机器上字节不同 —— 而补丁脚本、探针、grep 锚点
+# 都是按 LF 写的，换台机器就「每处命中 0 次」（不是文件没了，是行尾变了）。
+#
+# ⚠️ 只写 `text=auto` 不够：那只是「让 git 自己决定」，显式 `eol=lf` 才是判据。
+* text=auto eol=lf
+
+# 万一以后有二进制入库，别让 git 去猜
+*.db binary
+*.db-journal binary
+*.exe binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary
+*.keystore binary
+*.jks binary
