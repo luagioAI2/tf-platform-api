@@ -259,7 +259,7 @@ def build():
     w("| 调余额 | `POST /mall/user/adjust` | 必须填备注，服务端写一条 `manual_adjust` 流水 |")
     w("")
     w("⚠️ 这几件事在 **`tf-admin`**，不在 `tf-platform-api`。用户列表也不能放在")
-    w("`/api/user` 下 —— 那是 App 的 JWT，家长账号之间能互相看见；")
+    w("`/api/user` 下 —— 那是 App 自己的 JWT，用户之间能互相看见；")
     w("必须走后台的 `AdminMiddleware`。")
     w("")
     w("### 已经初始化过的库要补菜单和权限")
