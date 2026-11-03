@@ -49,6 +49,7 @@ wallet-not-exist: "Wallet does not exist"
 currency-not-supported: "Unsupported currency"
 balance-conflict: "Balance update conflict, please retry"
 duplicate-ledger-entry: "This ledger entry already exists"
+import-payload-invalid: "Invalid import payload"
 
 # ===== 游戏域 =====
 game-not-exist: "Game does not exist"

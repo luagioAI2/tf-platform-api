@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"tf-api/internal/app/entities"
 	apperrors "tf-api/internal/app/errors"
@@ -171,6 +172,89 @@ func (s *WalletService) SpendPoints(ctx context.Context, uid uint, req *entities
 		return nil, err
 	}
 	return w, nil
+}
+
+// ImportLegacy 把「本地版留下的余额」一次性结转进这个账号。
+//
+// ## 三种币一个事务
+//
+// 分开提交的话，中途失败会留下「积分搬了、兑换券没搬」，而客户端那边一旦删掉
+// 本机旧行，兑换券就真的没了。一个事务要么全成、要么全不成。
+//
+// ## 幂等按币种算
+//
+// 幂等键里带币种 ⇒ 重试时已经写过的那个币种命中、没写过的照常写。这比
+// 「整单一个键」宽容，也比「整单不加键」安全：同一次重试不会写两遍。
+//
+// ## 为什么不校验「账号里已经有余额了」
+//
+// 那会把「家长先在这台设备上注册过、孩子又在别的设备上玩过」这种正常情况
+// 挡掉。这里只回答一个问题：「这份本机旧账搬上去了没有」—— 搬过就跳过，
+// 没搬过就写。客户端负责只在一台设备上算一次载荷（见 `online/legacy.ts`）。
+func (s *WalletService) ImportLegacy(ctx context.Context, uid uint, req *entities.WalletImportReq) (*entities.WalletImportResp, error) {
+	if req.Points+req.Coupons+req.Diamonds <= 0 {
+		return nil, apperrors.WithCode(apperrors.ImportPayloadInvalid)
+	}
+
+	type item struct {
+		cur   entities.Currency
+		delta int64
+		count int64
+		name  string
+	}
+	items := []item{
+		{entities.CurrencyPoints, req.Points, req.Counts["points"], "积分"},
+		{entities.CurrencyCoupon, req.Coupons, req.Counts["coupons"], "兑换券"},
+		{entities.CurrencyDiamond, req.Diamonds, req.Counts["diamonds"], "钻石"},
+	}
+
+	resp := &entities.WalletImportResp{}
+	err := s.Repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for _, it := range items {
+			if it.delta <= 0 {
+				continue
+			}
+			memo := fmt.Sprintf("从本地版结转 %s %d", it.name, it.delta)
+			if it.count > 0 {
+				memo = fmt.Sprintf("从本地版结转 %s %d（%d 笔）", it.name, it.delta, it.count)
+			}
+			_, _, err := s.Repo.ApplyChangeWithTx(ctx, tx, repository.BalanceChange{
+				UID:            uid,
+				Currency:       it.cur,
+				Delta:          it.delta,
+				Source:         entities.SourceLegacyImport,
+				Memo:           memo,
+				IdempotencyKey: fmt.Sprintf("legacy_import:%d:%s:%s", uid, req.Key, it.cur),
+			})
+			if errors.Is(err, repository.ErrDuplicateLedger) {
+				// 这个币种之前已经搬过了 —— 正常重试，不是错误
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			resp.Imported = true
+			switch it.cur {
+			case entities.CurrencyPoints:
+				resp.Points = it.delta
+			case entities.CurrencyCoupon:
+				resp.Coupons = it.delta
+			case entities.CurrencyDiamond:
+				resp.Diamonds = it.delta
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, apperrors.WithError(err)
+	}
+
+	w, err := s.GetWallet(ctx, uid)
+	if err != nil {
+		return nil, err
+	}
+	resp.Wallet = w
+	return resp, nil
 }
 
 // ChangeWithTx 在给定事务内变更余额（供跨表事务使用）。

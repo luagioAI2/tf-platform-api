@@ -149,6 +149,9 @@ const (
 	SourceAnimalProduce = "animal_produce" // 动物产出卖出
 	SourceClawPrize     = "claw_prize"     // 奖品兑换（保留兼容）
 	SourcePluginMint    = "plugin_mint"    // 插件游戏发券
+	// SourceLegacyImport 从本地版结转过来的余额（见 WalletImportReq）。
+	// 单独一个来源，家长看流水时能一眼分清「云端挣的」和「本机搬来的」。
+	SourceLegacyImport = "legacy_import"
 )
 
 // 钻石来源

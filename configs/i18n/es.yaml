@@ -49,6 +49,7 @@ wallet-not-exist: "La cartera no existe"
 currency-not-supported: "Moneda no soportada"
 balance-conflict: "Conflicto al actualizar el saldo, inténtelo de nuevo"
 duplicate-ledger-entry: "Este registro ya existe"
+import-payload-invalid: "Contenido de importación no válido"
 
 # ===== Juego =====
 game-not-exist: "El juego no existe"

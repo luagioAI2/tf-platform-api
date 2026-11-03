@@ -134,6 +134,52 @@ type WalletSpendReq struct {
 	ClientRequestID string `json:"client_request_id" binding:"omitempty,max=64"`
 }
 
+// WalletImportReq 把「本地版留下的余额」一次性结转进这个账号。
+//
+// ## 为什么需要它
+//
+// 本地版和在线版共用同一个包名、同一套表。从本地版升级上来的设备，Dexie 的
+// 三张账本里还留着旧行；而在线版的余额是**整表求和**（`currentBalance` 之类，
+// 不过滤云端镜像行），于是界面显示「服务端 + 本机旧账」，服务端只认自己那份。
+// 实测（2026-11-03）：服务端 `points=219`，界面显示 `1219`，重开还是 1219。
+// 孩子看到 1219 分，兑换时却被服务端拒掉，而且只说「积分不够」。
+//
+// ## 只搬余额，不搬流水
+//
+// 逐条搬历史等于让客户端和服务端各持一套「同一个事实」的账：任何一次重试都
+// 可能多记一笔，而本地流水里的 `refId` 在服务端根本不存在。所以每种币最多写
+// **一行**「结转」，备注带上笔数 —— 家长看流水时能一眼认出来。
+//
+// ## 幂等
+//
+// 幂等键 = `legacy_import:<uid>:<key>:<currency>`，`key` 由客户端给（安装 id
+// + 载荷哈希）。同一个安装重复调用只生效一次；换一台设备、载荷不同 ⇒ 各写各的，
+// 不会互相吞掉。
+type WalletImportReq struct {
+	// Key 幂等键（客户端给）
+	Key string `json:"key" binding:"required,min=1,max=64"`
+	// Points 要结转的积分
+	Points int64 `json:"points" binding:"min=0,max=1000000"`
+	// Coupons 要结转的兑换券
+	Coupons int64 `json:"coupons" binding:"min=0,max=1000000"`
+	// Diamonds 要结转的钻石
+	Diamonds int64 `json:"diamonds" binding:"min=0,max=1000000"`
+	// Counts 各币种的笔数，只用来写备注（服务端不校验，客户端统计）
+	Counts map[string]int64 `json:"counts" binding:"omitempty"`
+}
+
+// WalletImportResp 结转结果
+type WalletImportResp struct {
+	// Imported 这次真的写进去了没有。false = 之前已经结转过（重试）
+	Imported bool `json:"imported"`
+	// 这次写进去的数量（重复调用时都是 0）
+	Points   int64 `json:"points"`
+	Coupons  int64 `json:"coupons"`
+	Diamonds int64 `json:"diamonds"`
+	// Wallet 结转之后的余额
+	Wallet *WalletInfo `json:"wallet"`
+}
+
 // ============================ 游戏 ============================
 
 // GameListReq 游戏列表请求

@@ -62,6 +62,10 @@ const (
 	CurrencyNotSupported  = 10020601 // 币种不支持
 	BalanceConflict       = 10020701 // 余额并发冲突，请重试
 	DuplicateLedgerEntry  = 10020801 // 重复记账（幂等命中）
+	// ImportPayloadInvalid 结转内容不合法（全是 0 / 负数 / 超过上限）。
+	// 不复用 InvalidParam：调用方看到「参数错误」会去查字段名，
+	// 而这里真正的原因是「这笔结转没有意义」，两件事。
+	ImportPayloadInvalid = 10020901 // 结转内容不合法
 )
 
 // ============================ 游戏域 10 04 xx xx ============================
@@ -211,6 +215,7 @@ var ErrCodeMsg = map[int]string{
 	CurrencyNotSupported:  "currency-not-supported",
 	BalanceConflict:       "balance-conflict",
 	DuplicateLedgerEntry:  "duplicate-ledger-entry",
+	ImportPayloadInvalid:  "import-payload-invalid",
 
 	GameNotExist:           "game-not-exist",
 	GameOffline:            "game-offline",

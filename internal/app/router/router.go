@@ -153,6 +153,7 @@ func (a *Router) registerAPI(app *gin.Engine) {
 		walletGroup.POST("/info", a.WalletAPI.Info)
 		walletGroup.POST("/ledger", a.WalletAPI.Ledger)
 		walletGroup.POST("/spend", a.WalletAPI.Spend)
+		walletGroup.POST("/import", a.WalletAPI.Import)
 	}
 
 	// ---- 游戏商城 ----

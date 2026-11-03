@@ -58,13 +58,14 @@
 | `POST` | `/api/user/settings/save` | 登录 | 保存家长设置（整份覆盖） |
 | `POST` | `/api/user/update-profile` | 登录 | 更新用户资料 |
 
-### 钱包（积分 / 券 / 钻石） `/api/wallet`（3 个）
+### 钱包（积分 / 券 / 钻石） `/api/wallet`（4 个）
 
 | 方法 | 路径 | 鉴权 | 作用 |
 |---|---|---|---|
 | `POST` | `/api/wallet/info` | 登录 | 获取钱包余额（三套币） |
 | `POST` | `/api/wallet/ledger` | 登录 | 查询账本流水 |
 | `POST` | `/api/wallet/spend` | 登录 | 扣积分 |
+| `POST` | `/api/wallet/import` | 登录 | 结转本地版留下的余额（幂等） |
 
 ### 游戏商城 / 分发 `/api/game`（6 个）
 
