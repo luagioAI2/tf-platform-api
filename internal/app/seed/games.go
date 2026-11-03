@@ -63,8 +63,10 @@ var Games = []*entities.Game{
 		PricePoints:  500,
 		PriceDiamond: 0,
 		DefaultOwned: false,
-		AgeHint:      "6 岁以上",
-		SessionHint:  "一次 3~8 分钟",
+		/* manifest: economy.voucherPerCoin = 1 */
+		VoucherPerCoin: 1,
+		AgeHint:        "6 岁以上",
+		SessionHint:    "一次 3~8 分钟",
 		Learn: entities.JSONStringArray{
 			"爪子只能对准一个方向 —— 正面看是正对着，侧面看才知道偏了多少",
 			"夹起来不等于拿到：中途掉了就是白玩一次",
@@ -96,9 +98,11 @@ var Games = []*entities.Game{
 		Status:       entities.GameStatusAvailable,
 		PricePoints:  400,
 		DefaultOwned: false,
-		AgeHint:      "6 岁以上",
-		SessionHint:  "一次 3~5 分钟",
-		Sort:         0,
+		/* manifest: economy.voucherPerCoin = 1 */
+		VoucherPerCoin: 1,
+		AgeHint:        "6 岁以上",
+		SessionHint:    "一次 3~5 分钟",
+		Sort:           0,
 	},
 	{
 		GameID:       "sugar",

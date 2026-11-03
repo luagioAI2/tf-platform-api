@@ -281,8 +281,6 @@ func (s *GameCoinService) MintVoucher(ctx context.Context, uid uint, req *entiti
 //
 // 汇率由**服务端配置**决定，不由客户端传（否则一个写错的客户端就能印券）。
 func (s *GameCoinService) Redeem(ctx context.Context, uid uint, req *entities.GameCoinRedeemReq) (*entities.GameCoinResp, error) {
-	// 汇率：从游戏配置读（voucherPerCoin），这里用默认 1:1
-	rate := int64(1)
 	g, err := s.GameRepo.GetByGameID(ctx, req.GameID)
 	if err != nil {
 		return nil, apperrors.WithError(err)
@@ -290,6 +288,18 @@ func (s *GameCoinService) Redeem(ctx context.Context, uid uint, req *entities.Ga
 	if g == nil {
 		return nil, apperrors.WithCode(apperrors.GameNotExist)
 	}
+
+	// 汇率：**这款游戏**自己那份（`game.voucher_per_coin`），0 = 不开放。
+	//
+	// 原来这里写死 `rate := int64(1)`，注释却写着「从游戏配置读」——
+	// 结果是：任何一款没开放兑换的游戏（manifest 里不写 `voucherPerCoin`）
+	// 都能换，而且按 1:1 发；manifest 写 2 的游戏则少发一半。
+	// 前者是「绕过开关」，后者是「界面说 10 张、实际到 5 张」，
+	// 两种都不报错（客户端只会 console.warn）。
+	if g.VoucherPerCoin <= 0 {
+		return nil, apperrors.WithCode(apperrors.GameCoinRedeemClosed)
+	}
+	rate := g.VoucherPerCoin
 
 	vouchers := req.Count * rate
 	var newBalance int64

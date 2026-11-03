@@ -34,6 +34,24 @@ type Game struct {
 	// DefaultOwned 是否默认拥有（首款免费游戏）
 	DefaultOwned bool `gorm:"column:default_owned;default:false" json:"default_owned"`
 
+	// VoucherPerCoin 游戏币 → 兑换券的汇率（1 个币换几张券）。**0 = 不开放兑换**。
+	//
+	// 语义跟插件 manifest 的 `economy.voucherPerCoin` 对齐
+	// （见 kid-quest-farm-online 的 `src/domain/pluginEconomy.ts`）：
+	//   - 不写 / 写 0 ⇒ 这款游戏**不开放**币换券；
+	//   - 写 N ⇒ 1 个币换 N 张券。
+	//
+	// ★ 为什么汇率在服务端、且**不接受客户端传**：兑换就是印券。
+	//   让客户端带汇率，等于把印钞机的旋钮交出去 —— 一个写错的插件
+	//   传个 1000 就能印出无限兑换券，而账本上每一笔都「合法」。
+	//   客户端自己算的那份只用来**对账**（对不上会 console.warn）。
+	//
+	// ★ 为什么默认 0（不开放）而不是 1：默认开放等于「没配置的游戏都能印券」。
+	//   代价是：这一列上线后必须先跑一次 `go run ./cmd/seed games`，
+	//   否则本来就开放兑换的游戏（claw3d / prizepark）会暂时换不了 ——
+	//   报的是「这款游戏没有开放兑换」，不是静默少发。
+	VoucherPerCoin int64 `gorm:"column:voucher_per_coin;default:0" json:"voucher_per_coin"`
+
 	// EntryURL 游戏入口 URL（插件包地址，可为空）
 	EntryURL string `gorm:"column:entry_url;size:512" json:"entry_url"`
 	// CoverURL 封面图

@@ -77,6 +77,7 @@ const (
 	GameCoinInsufficient  = 10040901 // 游戏币不足
 	SnapshotNotExist      = 10041001 // 存档快照不存在
 	SnapshotQuotaExceeded = 10041101 // 快照数量超出配额
+	GameCoinRedeemClosed  = 10041201 // 这款游戏没有开放「币换券」
 )
 
 // ============================ 农场域 10 11 xx xx ============================
@@ -218,6 +219,7 @@ var ErrCodeMsg = map[int]string{
 	GameCoinInsufficient:  "game-coin-insufficient",
 	SnapshotNotExist:      "snapshot-not-exist",
 	SnapshotQuotaExceeded: "snapshot-quota-exceeded",
+	GameCoinRedeemClosed:  "game-coin-redeem-closed",
 
 	FarmStateTooLarge:  "farm-state-too-large",
 	FarmStateConflict:  "farm-state-conflict",

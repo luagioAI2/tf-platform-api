@@ -86,7 +86,7 @@ func (r *GameRepository) Upsert(ctx context.Context, g *entities.Game) error {
 		Columns: []clause.Column{{Name: "game_id"}},
 		DoUpdates: clause.AssignmentColumns([]string{
 			"name", "emoji", "tagline", "kind", "tint", "status",
-			"price_points", "price_diamond", "default_owned",
+			"price_points", "price_diamond", "default_owned", "voucher_per_coin",
 			"entry_url", "cover_url", "age_hint", "session_hint",
 			"learn", "about", "shots", "sort", "updated_at",
 		}),

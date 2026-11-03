@@ -73,6 +73,7 @@ game-kv-too-large: "Save data too large"
 game-kv-version-conflict: "Save data was updated on another device, please refresh"
 game-kv-key-reserved: "This key is reserved by the system"
 game-coin-insufficient: "Insufficient game coins"
+game-coin-redeem-closed: "This game does not allow exchanging coins for vouchers"
 
 # ===== Task system =====
 task-not-exist: "Task does not exist"
