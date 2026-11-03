@@ -3,10 +3,14 @@ package entities
 // ============================ 注册 / 登录请求 ============================
 
 // RegisterReq 手机号注册
+//
+// `code` 可填可不填（2026-11-03）：生产环境还没有短信通道，见 `BindMobileReq`
+// 的说明。没填时 `mobile_verified = false`，密码本来就是必填，所以「回来的路」
+// 是有的 —— 这是它和 `BindMobileReq` 唯一的不同。
 type RegisterReq struct {
 	Mobile   string `json:"mobile" binding:"required,min=8,max=24"`   // 手机号（含国家码）
 	Password string `json:"password" binding:"required,min=6,max=64"` // 密码
-	Code     string `json:"code" binding:"required,len=6,numeric"`    // 短信验证码
+	Code     string `json:"code" binding:"omitempty,len=6,numeric"`   // 短信验证码（可选）
 	Nickname string `json:"nickname" binding:"omitempty,max=32"`      // 昵称（可选，默认用手机号后 4 位）
 }
 

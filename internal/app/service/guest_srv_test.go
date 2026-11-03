@@ -555,3 +555,80 @@ func TestGuestBindWrongCodeStillRejected(t *testing.T) {
 		t.Errorf("期望 VerifyCodeInvalid，实际 %v", err)
 	}
 }
+
+// TestRegisterWithoutCodeWorks 不带验证码也能注册（同绑定的口径）。
+//
+// 生产环境没有短信通道 ⇒ 原来「必须填验证码」等于「永远注册不了」。
+// ★ 重点仍然是最后那步登录：注册完登不回来，等于注册了个空壳。
+func TestRegisterWithoutCodeWorks(t *testing.T) {
+	f := newGuestFixture(t)
+	ctx := context.Background()
+	const mobile = "+8613800138005"
+	const password = "abc123456"
+
+	resp, err := f.auth.Register(ctx, &entities.RegisterReq{
+		Mobile:   mobile,
+		Password: password,
+	}, "127.0.0.1", "test", "device-reg-0005")
+	if err != nil {
+		t.Fatalf("不带验证码注册失败: %v", err)
+	}
+	if resp.User.IsGuest {
+		t.Error("注册出来的账号居然是游客")
+	}
+	if resp.User.MobileVerified {
+		t.Error("没填验证码却记成了「已验证」")
+	}
+
+	back, err := f.auth.Login(ctx, &entities.LoginReq{Mobile: mobile, Password: password},
+		"127.0.0.1", "test", "device-reg-other")
+	if err != nil {
+		t.Fatalf("注册完登不回来: %v", err)
+	}
+	if back.User.UID != resp.User.UID {
+		t.Errorf("登回来的不是同一个号：%d → %d", resp.User.UID, back.User.UID)
+	}
+
+	// 不是游客 ⇒ 花券不该被拦
+	if _, _, err := f.walletSrv.Change(ctx, repository.BalanceChange{
+		UID:      resp.User.UID,
+		Currency: entities.CurrencyCoupon,
+		Delta:    1,
+		Source:   entities.SourceFarmMarket,
+		Memo:     "先发一张",
+	}); err != nil {
+		t.Fatalf("发券失败: %v", err)
+	}
+	if _, _, err := f.walletSrv.Change(ctx, repository.BalanceChange{
+		UID:      resp.User.UID,
+		Currency: entities.CurrencyCoupon,
+		Delta:    -1,
+		Source:   entities.SourceRedeem,
+		Memo:     "花掉",
+	}); err != nil {
+		t.Errorf("正式账号花券被拦了: %v", err)
+	}
+}
+
+// TestRegisterWithoutCodeRejectsTakenMobile 号被占了就拒 —— 放宽不是「随便占号」。
+func TestRegisterWithoutCodeRejectsTakenMobile(t *testing.T) {
+	f := newGuestFixture(t)
+	ctx := context.Background()
+	const mobile = "+8613800138006"
+
+	if _, err := f.auth.Register(ctx, &entities.RegisterReq{
+		Mobile: mobile, Password: "first123",
+	}, "127.0.0.1", "test", "device-reg-0006a"); err != nil {
+		t.Fatalf("第一次注册失败: %v", err)
+	}
+
+	_, err := f.auth.Register(ctx, &entities.RegisterReq{
+		Mobile: mobile, Password: "second123",
+	}, "127.0.0.1", "test", "device-reg-0006b")
+	if err == nil {
+		t.Fatal("同一个手机号被注册了两次")
+	}
+	if !apperrors.Is(err, apperrors.MobileAlreadyReg) {
+		t.Errorf("期望 MobileAlreadyReg，实际 %v", err)
+	}
+}

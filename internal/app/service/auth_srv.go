@@ -220,8 +220,19 @@ func (s *AuthService) Register(ctx context.Context, req *entities.RegisterReq, i
 		return nil, apperrors.WithCode(apperrors.InvalidParam)
 	}
 
-	if err := s.verifySmsCode(ctx, mobile, entities.SmsSceneRegister, req.Code); err != nil {
-		return nil, err
+	/* 验证码可填可不填，同 `BindMobile`（2026-11-03）：生产环境没有短信通道，
+	   「必须填验证码」等于「永远注册不了」。没填 ⇒ `mobile_verified = false`。
+	   密码本来就是必填，所以「以后怎么回来」这条路是有的。 */
+	verified := false
+	if req.Code != "" {
+		if err := s.verifySmsCode(ctx, mobile, entities.SmsSceneRegister, req.Code); err != nil {
+			return nil, err
+		}
+		verified = true
+	} else if req.Password == "" {
+		// DTO 里 password 是 required，正常到不了这里；服务层再兜一次，
+		// 免得以后有人从别的路径直接调 Register 造出一个「回不来」的号。
+		return nil, apperrors.WithCode(apperrors.BindNeedPassword)
 	}
 
 	exists, err := s.UserRepo.ExistsByMobile(ctx, mobile)
@@ -244,7 +255,7 @@ func (s *AuthService) Register(ctx context.Context, req *entities.RegisterReq, i
 
 	user := &entities.User{
 		Mobile:         mobile,
-		MobileVerified: true,
+		MobileVerified: verified,
 		Password:       string(hash),
 		Nickname:       nickname,
 		Status:         entities.UserStatusActive,
