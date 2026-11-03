@@ -560,9 +560,29 @@ func (s *AuthService) WechatLogin(ctx context.Context, req *entities.WechatLogin
 // `/user/profile` 往返不值当，而且中间那一帧会闪。
 func (s *AuthService) BindMobile(ctx context.Context, uid uint, req *entities.BindMobileReq) (*entities.UserInfo, error) {
 	mobile := normalizeMobile(req.Mobile)
+	if mobile == "" {
+		return nil, apperrors.WithCode(apperrors.InvalidParam)
+	}
 
-	if err := s.verifySmsCode(ctx, mobile, entities.SmsSceneBindMobile, req.Code); err != nil {
-		return nil, err
+	/* 验证码可填可不填（2026-11-03）。
+	   生产环境还没有短信通道，`DevSmsSender` 在 `IsProduction()` 下直接返回
+	   错误 ⇒ 「必须填验证码」等于「永远绑不上」，游客攒的东西一辈子存不下来。
+
+	   没填验证码时的两条兜底：
+	     · 必须设密码 —— 验证码证明「这号是你的」，密码是「以后怎么回来」。
+	       两个都不给，这个账号换台手机就永久丢了，而且丢的时候没有任何提示。
+	     · `mobile_verified = false` —— 后台一眼能看出哪些号没验过，
+	       等短信通道接上再补一次验证（`/auth/bind` 重调一次就翻成 true）。
+	   ⚠️ 「抢号」风险由下面那道 `MobileAlreadyReg` 挡住：最多抢到一个
+	   谁都没用过的空号，动不了别人的账号。 */
+	verified := false
+	if req.Code != "" {
+		if err := s.verifySmsCode(ctx, mobile, entities.SmsSceneBindMobile, req.Code); err != nil {
+			return nil, err
+		}
+		verified = true
+	} else if req.Password == "" {
+		return nil, apperrors.WithCode(apperrors.BindNeedPassword)
 	}
 
 	// 手机号是否已被其他账号占用
@@ -576,7 +596,7 @@ func (s *AuthService) BindMobile(ctx context.Context, uid uint, req *entities.Bi
 
 	fields := map[string]interface{}{
 		"mobile":          mobile,
-		"mobile_verified": true,
+		"mobile_verified": verified,
 		// 绑完就不是游客了。扣券闸门、后台的游客筛选、「保存进度」提示
 		// 全靠这个字段，漏了这一行 ⇒ 绑完了还是「临时账号」，用户会
 		// 反复被要求绑定。

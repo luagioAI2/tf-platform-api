@@ -386,3 +386,172 @@ func TestGuestLoginRejectsBadDeviceID(t *testing.T) {
 		}
 	}
 }
+
+// ============================ 不带验证码绑定（2026-11-03） ============================
+//
+// 生产环境没有短信通道 ⇒ 「必须填验证码」等于「永远绑不上」。
+// 这三条守的是那条放宽**没有把门开太大**。
+
+// TestGuestBindWithoutCodeNeedsPassword 不带验证码又不设密码 ⇒ 拒。
+//
+// 这不是「多此一举」：验证码证明号是你的，密码是以后怎么回来。
+// 两个都不给，这个账号换台手机就永久丢了，而且丢的时候不会有任何提示。
+func TestGuestBindWithoutCodeNeedsPassword(t *testing.T) {
+	f := newGuestFixture(t)
+	ctx := context.Background()
+
+	resp, err := f.auth.GuestLogin(ctx, "device-nocode-0001", "127.0.0.1", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = f.auth.BindMobile(ctx, resp.User.UID, &entities.BindMobileReq{
+		Mobile: "+8613800138001",
+	})
+	if err == nil {
+		t.Fatal("不带验证码也不带密码，居然绑成功了 —— 这个账号以后再也回不来")
+	}
+	if !apperrors.Is(err, apperrors.BindNeedPassword) {
+		t.Errorf("期望 BindNeedPassword，实际 %v", err)
+	}
+}
+
+// TestGuestBindWithoutCodeWorks 不带验证码 + 设了密码 ⇒ 能绑，而且**真的能登回来**。
+//
+// ★ 最后那步登录才是这条测试的重点：只断言「绑成功了」不够 ——
+//   密码没落库、哈希写坏了、Login 查的不是这个字段，绑完一样是死的。
+func TestGuestBindWithoutCodeWorks(t *testing.T) {
+	f := newGuestFixture(t)
+	ctx := context.Background()
+	const mobile = "+8613800138002"
+	const password = "abc123456"
+
+	resp, err := f.auth.GuestLogin(ctx, "device-nocode-0002", "127.0.0.1", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	uid := resp.User.UID
+	f.creditCoupon(t, uid, 3)
+
+	info, err := f.auth.BindMobile(ctx, uid, &entities.BindMobileReq{
+		Mobile:   mobile,
+		Password: password,
+	})
+	if err != nil {
+		t.Fatalf("不带验证码绑定失败: %v", err)
+	}
+	if info.IsGuest {
+		t.Error("绑完还是 IsGuest=true —— 券还是花不出去")
+	}
+	if info.UID != uid {
+		t.Errorf("绑定不该换 uid：%d → %d", uid, info.UID)
+	}
+	/* 没验过就是没验过，别假装验过了 —— 后台要靠这个字段挑出来补验 */
+	if info.MobileVerified {
+		t.Error("没填验证码却记成了「已验证」")
+	}
+
+	// 换台设备用手机号 + 密码登回来
+	back, err := f.auth.Login(ctx, &entities.LoginReq{Mobile: mobile, Password: password},
+		"127.0.0.1", "test", "device-other-0002")
+	if err != nil {
+		t.Fatalf("绑完登不回来，等于白绑: %v", err)
+	}
+	if back.User.UID != uid {
+		t.Errorf("登回来的不是同一个号：%d → %d", uid, back.User.UID)
+	}
+
+	// 券真的能花了（闸门放行）
+	if _, _, err := f.walletSrv.Change(ctx, repository.BalanceChange{
+		UID:      uid,
+		Currency: entities.CurrencyCoupon,
+		Delta:    -1,
+		Source:   entities.SourceRedeem,
+		Memo:     "绑完之后花一张",
+	}); err != nil {
+		t.Errorf("绑完了还是花不了券: %v", err)
+	}
+}
+
+// TestGuestBindWithoutCodeCannotTakeOthersMobile 别人的手机号，不带验证码抢不走。
+//
+// 放宽之后唯一的真实风险就是这个：不验证码就能把号绑到自己名下。
+// 这里证明它只对「谁都没用过的空号」有效。
+func TestGuestBindWithoutCodeCannotTakeOthersMobile(t *testing.T) {
+	f := newGuestFixture(t)
+	ctx := context.Background()
+	const mobile = "+8613800138003"
+
+	// A：带验证码绑上（号是它的了）
+	a, err := f.auth.GuestLogin(ctx, "device-owner-0003", "127.0.0.1", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.smsRepo.Create(ctx, &entities.SmsCode{
+		Mobile:   mobile,
+		CodeHash: hashSmsCode(mobile, "654321"),
+		Scene:    entities.SmsSceneBindMobile,
+		ExpireAt: time.Now().Unix() + entities.SmsCodeTTLSeconds,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.auth.BindMobile(ctx, a.User.UID, &entities.BindMobileReq{
+		Mobile: mobile, Code: "654321", Password: "owner123",
+	}); err != nil {
+		t.Fatalf("A 绑定失败: %v", err)
+	}
+
+	// B：想不带验证码把这个号绑到自己名下
+	b, err := f.auth.GuestLogin(ctx, "device-thief-0003", "127.0.0.1", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = f.auth.BindMobile(ctx, b.User.UID, &entities.BindMobileReq{
+		Mobile: mobile, Password: "thief123",
+	})
+	if err == nil {
+		t.Fatal("★ 别人的手机号被不带验证码绑走了")
+	}
+	if !apperrors.Is(err, apperrors.MobileAlreadyReg) {
+		t.Errorf("期望 MobileAlreadyReg，实际 %v", err)
+	}
+
+	// 而且 B 还是游客（没被写成半成品状态）
+	u, err := f.userRepo.GetByID(ctx, b.User.UID)
+	if err != nil || u == nil {
+		t.Fatalf("读回 B 失败: %v", err)
+	}
+	if !u.IsGuest {
+		t.Error("绑定失败了，B 却被翻成了正式账号")
+	}
+}
+
+// TestGuestBindWrongCodeStillRejected 填了验证码就必须对 —— 不能因为「可填」就变摆设。
+func TestGuestBindWrongCodeStillRejected(t *testing.T) {
+	f := newGuestFixture(t)
+	ctx := context.Background()
+	const mobile = "+8613800138004"
+
+	resp, err := f.auth.GuestLogin(ctx, "device-badcode-0004", "127.0.0.1", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.smsRepo.Create(ctx, &entities.SmsCode{
+		Mobile:   mobile,
+		CodeHash: hashSmsCode(mobile, "111111"),
+		Scene:    entities.SmsSceneBindMobile,
+		ExpireAt: time.Now().Unix() + entities.SmsCodeTTLSeconds,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = f.auth.BindMobile(ctx, resp.User.UID, &entities.BindMobileReq{
+		Mobile: mobile, Code: "999999", Password: "abc123456",
+	})
+	if err == nil {
+		t.Fatal("验证码错了还能绑上")
+	}
+	if !apperrors.Is(err, apperrors.VerifyCodeInvalid) {
+		t.Errorf("期望 VerifyCodeInvalid，实际 %v", err)
+	}
+}

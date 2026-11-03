@@ -52,6 +52,13 @@ const (
 	// 前端见到它只会提示去绑；这里的语义是「这一步得有个能找回的账号」，
 	// 前端要弹的是「保存进度」，措辞和落点都不一样。
 	GuestNeedBind = 10010802
+	// BindNeedPassword 不带验证码绑手机号时，必须设一个密码。
+	//
+	// 为什么必须有：验证码是「证明这个号是你的」，密码是「以后怎么回来」。
+	// 现在生产环境还没有短信通道（`DevSmsSender` 会直接报错），所以允许
+	// 不带验证码绑定 —— 那就**只剩密码**这一条回来的路。两个都不给，
+	// 这个账号换台手机就永久丢了，而且丢的时候不会有任何提示。
+	BindNeedPassword = 10010803
 	WechatAuthFailed     = 10010901 // 微信授权失败
 	WechatAlreadyBind    = 10010902 // 微信已绑定其他账号
 	AccountNotBindWechat = 10010903 // 账号未绑定微信
@@ -209,6 +216,7 @@ var ErrCodeMsg = map[int]string{
 	SmsSendFailed:        "sms-send-failed",
 	MobileNotBind:        "mobile-not-bound",
 	GuestNeedBind:        "guest-need-bind",
+	BindNeedPassword:     "bind-need-password",
 	WechatAuthFailed:     "wechat-auth-failed",
 	WechatAlreadyBind:    "wechat-already-bound",
 	AccountNotBindWechat: "account-not-bind-wechat",

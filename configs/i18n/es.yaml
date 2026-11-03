@@ -36,6 +36,7 @@ sms-send-too-often: "Código enviado con demasiada frecuencia, inténtelo más t
 sms-send-failed: "Error al enviar el código, inténtelo más tarde"
 mobile-not-bound: "Vincule primero un número de móvil"
 guest-need-bind: "Vincule un número de móvil para canjear premios"
+bind-need-password: "Sin código de verificación, defina una contraseña; si no, no podrá recuperar esta cuenta en otro teléfono"
 wechat-auth-failed: "La autorización de WeChat falló, inténtelo de nuevo"
 wechat-already-bound: "Esta cuenta de WeChat ya está vinculada a otro usuario"
 account-not-bind-wechat: "Esta cuenta no está vinculada a WeChat"

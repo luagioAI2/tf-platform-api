@@ -46,10 +46,22 @@ type WechatLoginReq struct {
 	Avatar   string `json:"avatar" binding:"omitempty,max=512"`
 }
 
-// BindMobileReq 微信账号绑定手机号
+// BindMobileReq 游客绑定手机号（转正式账号）
+//
+// ## 验证码可以不填（2026-11-03）
+//
+// 生产环境**还没有短信通道**（`DevSmsSender` 在 `IsProduction()` 下直接返回
+// 错误），所以「必须填验证码」等于「永远绑不上」。这里改成可选：
+//
+//   · 填了 ⇒ 照常校验，`mobile_verified = true`；
+//   · 没填 ⇒ 允许，但**必须同时设密码**（否则换台手机就永久回不来，
+//     见 `errors.BindNeedPassword`），并且 `mobile_verified = false`。
+//
+// ⚠️ 没填验证码时**不许绑别人的号**：手机号已经被另一个账号占着就直接拒
+// （`MobileAlreadyReg`），所以「抢号」最多抢到一个谁都没用过的空号。
 type BindMobileReq struct {
 	Mobile   string `json:"mobile" binding:"required,min=8,max=24"`
-	Code     string `json:"code" binding:"required,len=6,numeric"`
+	Code     string `json:"code" binding:"omitempty,len=6,numeric"`
 	Password string `json:"password" binding:"omitempty,min=6,max=64"`
 }
 
