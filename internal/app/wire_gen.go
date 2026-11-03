@@ -63,6 +63,13 @@ func BuildInjector(info buildinfo.Info) (*Injector, func(), error) {
 	userAPI := &api.UserAPI{
 		Srv: userService,
 	}
+	userSettingsRepository := &repository.UserSettingsRepository{
+		DB: db,
+	}
+	userSettingsService := service.ProvideUserSettingsService(userSettingsRepository)
+	userSettingsAPI := &api.UserSettingsAPI{
+		Srv: userSettingsService,
+	}
 	walletAPI := &api.WalletAPI{
 		Srv: walletService,
 	}
@@ -151,6 +158,7 @@ func BuildInjector(info buildinfo.Info) (*Injector, func(), error) {
 		SystemAPI:       systemAPI,
 		AuthAPI:         authAPI,
 		UserAPI:         userAPI,
+		UserSettingsAPI: userSettingsAPI,
 		WalletAPI:       walletAPI,
 		GameAPI:         gameAPI,
 		GameStorageAPI:  gameStorageAPI,

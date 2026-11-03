@@ -10,6 +10,7 @@ var APISet = wire.NewSet(
 	SystemAPISet,
 	AuthAPISet,
 	UserAPISet,
+	UserSettingsAPISet,
 	WalletAPISet,
 	GameAPISet,
 	GameStorageAPISet,

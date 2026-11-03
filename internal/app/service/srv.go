@@ -19,6 +19,7 @@ var SrvSet = wire.NewSet(
 	// 业务
 	WalletServiceSet,
 	UserServiceSet,
+	UserSettingsServiceSet,
 	WechatServiceSet,
 	AuthServiceSet,
 	GameServiceSet,

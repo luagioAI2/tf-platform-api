@@ -34,6 +34,7 @@ type Router struct {
 	SystemAPI       *api.SystemAPI
 	AuthAPI         *api.AuthAPI
 	UserAPI         *api.UserAPI
+	UserSettingsAPI *api.UserSettingsAPI
 	WalletAPI       *api.WalletAPI
 	GameAPI         *api.GameAPI
 	GameStorageAPI  *api.GameStorageAPI
@@ -139,6 +140,10 @@ func (a *Router) registerAPI(app *gin.Engine) {
 	userGroup := r.Group("/user").Use(middleware.JWTMiddleware(a.RDS))
 	{
 		userGroup.POST("/profile", a.UserAPI.Profile)
+		// 家长设置：整份 JSON 存取。放在 userGroup 里 ⇒ 天然要登录，
+		// 而且服务端不解释字段（客户端加字段不用动这里）。
+		userGroup.POST("/settings/get", a.UserSettingsAPI.Get)
+		userGroup.POST("/settings/save", a.UserSettingsAPI.Save)
 		userGroup.POST("/update-profile", a.UserAPI.UpdateProfile)
 	}
 

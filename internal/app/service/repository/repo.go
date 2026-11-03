@@ -20,6 +20,9 @@ func Models() []interface{} {
 		new(entities.Wallet),
 		new(entities.LedgerEntry),
 
+		// 家长设置（整份 JSON，一账号一行）
+		new(entities.UserSettings),
+
 		// 游戏与购买
 		new(entities.Game),
 		new(entities.UserGame),

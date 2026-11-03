@@ -19,6 +19,9 @@ var RepoSet = wire.NewSet(
 	// 钱包与账本
 	WalletRepositorySet,
 
+	// 家长设置
+	UserSettingsRepositorySet,
+
 	// 游戏与购买
 	GameRepositorySet,
 
