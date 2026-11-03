@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -446,5 +447,153 @@ func TestUninstallDropsSnapshotRows(t *testing.T) {
 	}
 	if physical != 0 {
 		t.Fatalf("卸载后表里还有 %d 行（软删的尸体）", physical)
+	}
+}
+
+// TestSnapshotUserQuota 单用户总量配额：日切基线不参与 per-key 淘汰，
+// 所以必须由第二级配额兜底，否则 `game_kv_snapshot` 只增不减。
+//
+// 断三件事：
+//  1. 超配额后总数回到上限（不多不少）；
+//  2. 删的是**最旧的基线**，刚存的那份还在（别把用户刚存的东西清掉）；
+//  3. 配额是按 uid 的，不串到别人。
+func TestSnapshotUserQuota(t *testing.T) {
+	svc, _ := newSnapshotTestService(t)
+	ctx := context.Background()
+	const uid = uint(7)
+
+	// 灌满：**全是日切基线** —— `DeleteOldest` 明确不碰它们，
+	// 所以只有 enforceUserQuota 能把这 2000 行收回去。
+	rows := make([]*entities.GameKvSnapshot, 0, entities.SnapshotMaxPerUser)
+	for i := 0; i < entities.SnapshotMaxPerUser; i++ {
+		rows = append(rows, &entities.GameKvSnapshot{
+			UID:             uid,
+			GameID:          "cloudfarm",
+			Key:             fmt.Sprintf("k%d", i%40),
+			Value:           `{"lv":1}`,
+			Size:            8,
+			Version:         1,
+			Reason:          entities.SnapshotReasonDaily,
+			IsDailyBaseline: true,
+		})
+	}
+	if err := svc.DB.CreateInBatches(rows, 200).Error; err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// 再存一份 ⇒ 触发配额清理
+	if _, err := svc.Create(ctx, uid, "cloudfarm", "save", `{"lv":2}`, 2,
+		entities.SnapshotReasonManual, ""); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	total, err := svc.SnapRepo.CountByUser(ctx, uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total > int64(entities.SnapshotMaxPerUser) {
+		t.Fatalf("配额没生效：%d 条（上限 %d）", total, entities.SnapshotMaxPerUser)
+	}
+	if total != int64(entities.SnapshotMaxPerUser) {
+		t.Fatalf("清理过量：%d 条（期望刚好回到 %d）", total, entities.SnapshotMaxPerUser)
+	}
+
+	// 删的是最旧的基线，不是刚建的这份
+	latest, err := svc.SnapRepo.GetLatest(ctx, uid, "cloudfarm", "save")
+	if err != nil || latest == nil {
+		t.Fatalf("刚存的快照被清掉了: %v", err)
+	}
+	if latest.Reason != entities.SnapshotReasonManual {
+		t.Fatalf("最新那份的 reason = %s，期望 manual", latest.Reason)
+	}
+
+	// 基线确实少了 1 条（证明删的就是它，而不是普通快照）
+	var baselines int64
+	if err := svc.DB.Model(&entities.GameKvSnapshot{}).
+		Where("uid = ? AND is_daily_baseline = ?", uid, true).
+		Count(&baselines).Error; err != nil {
+		t.Fatal(err)
+	}
+	if baselines != int64(entities.SnapshotMaxPerUser-1) {
+		t.Fatalf("基线剩 %d 条（期望 %d）", baselines, entities.SnapshotMaxPerUser-1)
+	}
+
+	// 配额按 uid：别人的一行都不该被碰
+	other, err := svc.SnapRepo.CountByUser(ctx, uid+1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other != 0 {
+		t.Fatalf("uid %d 应该是空的，实际 %d 条", uid+1, other)
+	}
+}
+
+// TestSnapshotQuotaAfterRestore 回档一次要写两条快照（before_restore + restore），
+// 走的是事务里的 CreateWithTx、**不经过** enforceRetention ⇒ 不补一次用户配额，
+// 反复回档（RestoreGame 是「每个键回一次」）就能把总量顶到配额之上。
+func TestSnapshotQuotaAfterRestore(t *testing.T) {
+	svc, _ := newSnapshotTestService(t)
+	ctx := context.Background()
+	const uid = uint(8)
+
+	// 当前存档（回档要写回它，所以它必须存在且 version 对得上）
+	if err := svc.DB.Create(&entities.GameKv{
+		UID: uid, GameID: "cloudfarm", Key: "save",
+		Value: `{"lv":9}`, Size: 9, Version: 1,
+	}).Error; err != nil {
+		t.Fatalf("seed kv: %v", err)
+	}
+
+	// 灌到「刚好满」：1999 条基线 + 1 条待回档的快照 = 2000
+	rows := make([]*entities.GameKvSnapshot, 0, entities.SnapshotMaxPerUser-1)
+	for i := 0; i < entities.SnapshotMaxPerUser-1; i++ {
+		rows = append(rows, &entities.GameKvSnapshot{
+			UID: uid, GameID: "cloudfarm", Key: "bag",
+			Value: `{"n":0}`, Size: 7, Version: 1,
+			Reason: entities.SnapshotReasonDaily, IsDailyBaseline: true,
+		})
+	}
+	if err := svc.DB.CreateInBatches(rows, 200).Error; err != nil {
+		t.Fatalf("seed snapshots: %v", err)
+	}
+	target := &entities.GameKvSnapshot{
+		UID: uid, GameID: "cloudfarm", Key: "save",
+		Value: `{"lv":1}`, Size: 9, Version: 1,
+		Reason: entities.SnapshotReasonManual,
+	}
+	if err := svc.SnapRepo.Create(ctx, target); err != nil {
+		t.Fatalf("seed target: %v", err)
+	}
+
+	before, err := svc.SnapRepo.CountByUser(ctx, uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before != int64(entities.SnapshotMaxPerUser) {
+		t.Fatalf("前置条件不成立：%d 条", before)
+	}
+
+	// 回档 ⇒ +2 条（before_restore + restore）
+	if _, err := svc.Restore(ctx, uid, target.ID, 0, "test"); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+
+	after, err := svc.SnapRepo.CountByUser(ctx, uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after > int64(entities.SnapshotMaxPerUser) {
+		t.Fatalf("回档后超配额：%d 条（上限 %d）", after, entities.SnapshotMaxPerUser)
+	}
+
+	// 「回档本身也可回档」不能被这条清理破坏：刚写的 before_restore 还在
+	var beforeRestore int64
+	if err := svc.DB.Model(&entities.GameKvSnapshot{}).
+		Where("uid = ? AND reason = ?", uid, entities.SnapshotReasonBeforeRestore).
+		Count(&beforeRestore).Error; err != nil {
+		t.Fatal(err)
+	}
+	if beforeRestore != 1 {
+		t.Fatalf("before_restore 快照被清掉了（%d 条）", beforeRestore)
 	}
 }

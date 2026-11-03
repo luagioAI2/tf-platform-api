@@ -164,16 +164,58 @@ func (s *GameSnapshotService) shouldMarkDailyBaseline(ctx context.Context, uid u
 	return !has
 }
 
-// enforceRetention 执行保留策略：每个 key 最多保留 N 个非基线快照。
+// enforceRetention 执行保留策略，两级：
+//
+//	① 每个 key 最多保留 `SnapshotKeepPerKey` 个**非基线**快照；
+//	② 每个用户总量不超过 `SnapshotMaxPerUser`（含日切基线）。
+//
+// 第 ② 级不是锦上添花：第 ① 级按设计**不碰日切基线**，而基线是每天一条、
+// 按 key 攒 —— 一个孩子玩一年、一款游戏 5 个键就是 1825 行，每行是整份
+// 存档（KB 级）。`/game/kv/usage` 只统计 `game_kv` 表，所以这块在配额面板上
+// 一点都看不出来，只能靠这里自己兜住。
 //
 // ⚠️ 刻意做成**同步**而不是 `go func()`：
 // 每次写入都起一个 goroutine，在 5W 并发下会瞬间堆积成千上万个。
-// 这里只是一条带索引的 DELETE，开销可忽略，同步做反而更安全。
+// 这里只是两条带索引的 DELETE + 一次 COUNT，开销可忽略，同步做反而更安全。
 func (s *GameSnapshotService) enforceRetention(ctx context.Context, uid uint, gameID, key string) {
 	if _, err := s.SnapRepo.DeleteOldest(ctx, uid, gameID, key, entities.SnapshotKeepPerKey); err != nil {
 		logger.ZWarn("snapshot retention failed",
 			zap.Uint("uid", uid), zap.String("game_id", gameID),
 			zap.String("key", key), zap.Error(err))
+	}
+	s.enforceUserQuota(ctx, uid)
+}
+
+// enforceUserQuota 单用户总量配额兜底：超出就删最旧的（先删日切基线）。
+//
+// 「日切基线永久保留」的准确含义因此是「保留到总配额为止」。
+//
+// ★ 刻意**不**做成「超配额就拒绝写入」（`10041101` 曾为此留着，现已删除）：
+// 自动快照挂在 `storage.set` 后面，拒绝就等于「存档写进去了、还原点没了」，
+// 而调用方看不出区别 —— 正是本项目最怕的那种「两边不一致且不报错」。
+// 手动快照（`snapshot/create`）同理：用户在配额上时，他想要的是
+// 「再存一个」，不是「被告知存不下」；腾一个最旧的出来才是他要的结果。
+//
+// ★ 计数失败**放行**（宁可多存，别丢）：这里只是省空间，不是账本。
+func (s *GameSnapshotService) enforceUserQuota(ctx context.Context, uid uint) {
+	total, err := s.SnapRepo.CountByUser(ctx, uid)
+	if err != nil {
+		logger.ZWarn("snapshot quota: count failed", zap.Uint("uid", uid), zap.Error(err))
+		return
+	}
+	excess := int(total - entities.SnapshotMaxPerUser)
+	if excess <= 0 {
+		return
+	}
+
+	n, err := s.SnapRepo.DeleteOldestByUser(ctx, uid, excess)
+	if err != nil {
+		logger.ZWarn("snapshot quota: trim failed", zap.Uint("uid", uid), zap.Error(err))
+		return
+	}
+	if n > 0 {
+		logger.ZInfo("snapshot quota trimmed",
+			zap.Uint("uid", uid), zap.Int64("deleted", n), zap.Int64("total", total))
 	}
 }
 
@@ -335,6 +377,19 @@ func (s *GameSnapshotService) Restore(ctx context.Context, uid, snapshotID uint,
 			zap.Uint("uid", uid), zap.Uint("snapshot_id", snapshotID), zap.Error(err))
 		return nil, apperrors.WithError(err)
 	}
+
+	/*
+	 * 回档一次要写**两条**快照（`before_restore` + `restore`），而这条路径
+	 * 走的是事务里的 `CreateWithTx`，**不经过** `enforceRetention` ——
+	 * 连续回档几次，总量就会飘到配额之上（`RestoreGame` 是「每个键回一次」，
+	 * 5 个键就是 +10 条）。
+	 *
+	 * 所以事务提交后补一次**用户总量**那一级：它删的是全用户最旧的行，
+	 * 不可能碰到刚写进去的这两条（总量没超时它什么都不做）。
+	 * 刻意不调 `enforceRetention`：那一级会按 key 砍到 20 条，
+	 * 正好把刚建的 `before_restore` 砍掉 —— 「回档本身也可回档」就没了。
+	 */
+	s.enforceUserQuota(ctx, uid)
 
 	logger.ZInfo("game kv restored",
 		zap.Uint("uid", uid),

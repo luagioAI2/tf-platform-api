@@ -183,6 +183,37 @@ func (r *GameKvSnapshotRepository) CountByUser(ctx context.Context, uid uint) (i
 	return count, err
 }
 
+// DeleteOldestByUser 删掉该用户最旧的 n 个快照（总量配额兜底，日切基线也算在内）。
+//
+// 为什么「最旧的」基本就是日切基线：基线是每天的第一条，天然排在最前面，
+// 所以这里不需要再按 `is_daily_baseline` 排一次 —— 按 id 升序取，先走的就是它们。
+//
+// ⚠️ 同样必须 `Unscoped()`，理由见下面 `DeleteOldest` 那段（软删一个字节都不省）。
+func (r *GameKvSnapshotRepository) DeleteOldestByUser(ctx context.Context, uid uint, n int) (int64, error) {
+	if n <= 0 {
+		return 0, nil
+	}
+
+	// 先取 id 再按 id 删：SQLite 默认编译不开 `DELETE ... LIMIT`
+	var ids []uint
+	err := r.DB.WithContext(ctx).Model(&entities.GameKvSnapshot{}).
+		Where("uid = ?", uid).
+		Order("id ASC").Limit(n).
+		Pluck("id", &ids).Error
+	if err != nil {
+		return 0, err
+	}
+	if len(ids) == 0 {
+		return 0, nil
+	}
+
+	res := r.DB.WithContext(ctx).
+		Where("uid = ? AND id IN ?", uid, ids).
+		Unscoped().
+		Delete(&entities.GameKvSnapshot{})
+	return res.RowsAffected, res.Error
+}
+
 // DeleteOldest 删除某 key 最旧的 N 个非日切快照（保留策略）
 func (r *GameKvSnapshotRepository) DeleteOldest(ctx context.Context, uid uint, gameID, key string, keep int) (int64, error) {
 	if keep < 0 {

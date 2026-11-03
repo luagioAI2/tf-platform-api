@@ -125,5 +125,10 @@ const (
 	// SnapshotKeepPerKey 每个 key 保留的快照数（不含日切基线）
 	SnapshotKeepPerKey = 20
 	// SnapshotMaxPerUser 单用户快照总配额（防止存储爆炸）
+	//
+	// 这是**兜底**，不是重复：上面那条按 key 的保留策略明确**不碰日切基线**，
+	// 而基线每天一条、按 key 攒 —— 一年一款游戏就是上千行整份存档。
+	// 超出配额时删最旧的（先删基线），见 `GameSnapshotService.enforceUserQuota`。
+	// 所以「日切基线永久保留」的实际含义是「保留到总配额为止」。
 	SnapshotMaxPerUser = 2000
 )
