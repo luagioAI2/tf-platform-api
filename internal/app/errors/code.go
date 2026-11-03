@@ -78,7 +78,8 @@ const (
 	SnapshotNotExist      = 10041001 // 存档快照不存在
 	SnapshotQuotaExceeded = 10041101 // 快照数量超出配额
 	GameCoinRedeemClosed  = 10041201 // 这款游戏没有开放「币换券」
-	SettingsInvalid       = 10041301 // 设置内容不合法（不是 JSON 对象 / 太大）
+	SettingsInvalid       = 10041301 // 设置内容不合法（不是 JSON 对象 / 空）
+	SettingsTooLarge      = 10041302 // 设置内容超过大小上限（带 %d，必须单独一个码）
 )
 
 // ============================ 农场域 10 11 xx xx ============================
@@ -222,6 +223,7 @@ var ErrCodeMsg = map[int]string{
 	SnapshotQuotaExceeded: "snapshot-quota-exceeded",
 	GameCoinRedeemClosed:  "game-coin-redeem-closed",
 	SettingsInvalid:       "settings-invalid",
+	SettingsTooLarge:      "settings-too-large",
 
 	FarmStateTooLarge:  "farm-state-too-large",
 	FarmStateConflict:  "farm-state-conflict",

@@ -56,9 +56,10 @@ func (s *UserSettingsService) Save(ctx context.Context, uid uint, payload string
 		return nil, apperrors.WithCode(apperrors.SettingsInvalid)
 	}
 	if len(trimmed) > entities.MaxUserSettingsBytes {
-		return nil, apperrors.WithCodeFields(apperrors.SettingsInvalid, apperrors.ExtraFields{
+		// 只传一个参数：i18n 的 T() 是 fmt.Sprintf，args 按字段名排序后**位置**传参。
+		// 传两个（got/max）就得靠 got < max 这个字母序对，写反了文案依然通顺。
+		return nil, apperrors.WithCodeFields(apperrors.SettingsTooLarge, apperrors.ExtraFields{
 			"max": entities.MaxUserSettingsBytes,
-			"got": len(trimmed),
 		})
 	}
 	if !json.Valid([]byte(trimmed)) {

@@ -73,7 +73,8 @@ game-kv-too-large: "Los datos guardados son demasiado grandes"
 game-kv-version-conflict: "Los datos se actualizaron en otro dispositivo, actualice"
 game-kv-key-reserved: "Esta clave está reservada por el sistema"
 game-coin-insufficient: "Monedas de juego insuficientes"
-settings-invalid: "Configuración no válida (objeto JSON de hasta {{.max}} bytes)"
+settings-invalid: "Configuración no válida (debe ser un objeto JSON)"
+settings-too-large: "Configuración demasiado grande (límite %d bytes)"
 game-coin-redeem-closed: "Este juego no permite canjear monedas por vales"
 
 # ===== Sistema de tareas =====

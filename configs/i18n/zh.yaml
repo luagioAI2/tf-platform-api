@@ -73,7 +73,8 @@ game-kv-too-large: "存档过大，无法保存"
 game-kv-version-conflict: "存档已在其他设备更新，请刷新后重试"
 game-kv-key-reserved: "该键由系统保留，不可写入"
 game-coin-insufficient: "游戏币不足"
-settings-invalid: "设置内容不合法（{{.max}} 字节以内、且必须是 JSON 对象）"
+settings-invalid: "设置内容不合法（必须是 JSON 对象）"
+settings-too-large: "设置内容过大（上限 %d 字节）"
 game-coin-redeem-closed: "这款游戏没有开放兑换（币换券）"
 
 # ===== 任务系统 =====

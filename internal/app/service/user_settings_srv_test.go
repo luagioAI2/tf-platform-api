@@ -117,14 +117,15 @@ func TestSettingsRejectsBadPayload(t *testing.T) {
 	cases := []struct {
 		name    string
 		payload string
+		want    int
 	}{
-		{"空串", ""},
-		{"只有空格", "   "},
-		{"不是 JSON", "childName=小明"},
-		{"顶层是数组", `["小明"]`},
-		{"顶层是数字", `123`},
-		{"顶层是字符串", `"小明"`},
-		{"超过 32 KiB", big},
+		{"空串", "", apperrors.SettingsInvalid},
+		{"只有空格", "   ", apperrors.SettingsInvalid},
+		{"不是 JSON", "childName=小明", apperrors.SettingsInvalid},
+		{"顶层是数组", `["小明"]`, apperrors.SettingsInvalid},
+		{"顶层是数字", `123`, apperrors.SettingsInvalid},
+		{"顶层是字符串", `"小明"`, apperrors.SettingsInvalid},
+		{"超过 32 KiB", big, apperrors.SettingsTooLarge},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -132,8 +133,8 @@ func TestSettingsRejectsBadPayload(t *testing.T) {
 			if err == nil {
 				t.Fatalf("居然存进去了（%d 字节）", len(c.payload))
 			}
-			if !apperrors.Is(err, apperrors.SettingsInvalid) {
-				t.Fatalf("错误码不对：%v（期望 %d）", err, apperrors.SettingsInvalid)
+			if !apperrors.Is(err, c.want) {
+				t.Fatalf("错误码不对：%v（期望 %d）", err, c.want)
 			}
 			// 拒了就不能留痕
 			got, _ := svc.Get(ctx, 9)
