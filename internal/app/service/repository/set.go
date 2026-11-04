@@ -51,4 +51,7 @@ var RepoSet = wire.NewSet(
 
 	// 招商
 	MerchantRepositorySet,
+
+	// 模板
+	TemplateRepositorySet,
 )

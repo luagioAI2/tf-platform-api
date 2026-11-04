@@ -207,6 +207,11 @@ func provideMysql() *gorm.DB {
 		if err := seed.EnsureWishCatalog(context.Background(), repository.NewWishRepository(db), gameRepo); err != nil {
 			logger.ZWarn("seed wish catalog failed", zap.Error(err))
 		}
+		// 官方任务 / 兑换模板：只在「该 kind 还没有官方模板」时写，
+		// 运营改过之后重启不许覆盖（见 seed/templates.go）。
+		if err := seed.EnsureTemplates(context.Background(), db); err != nil {
+			logger.ZWarn("seed official templates failed", zap.Error(err))
+		}
 	}
 
 	// 注册 SQL 指标（在 migrate 之后，避免建表语句污染指标）

@@ -59,6 +59,14 @@ type User struct {
 	// 绑定手机号之后**要保留**：清掉的话，这台设备下次进来会另起一个
 	// 新账号，刚绑好的那份进度就成孤儿了。
 	DeviceID string `gorm:"column:device_id;size:64;uniqueIndex;default:null" json:"-"`
+
+	// SourceMerchantUID 这个账号是由哪个商家推广来的（user.id，0 = 官方渠道）。
+	//
+	// 注册时带邀请码写入，之后**不再改**（ApplyInvite 里第一次算数）。
+	// 模板下发按它挑商家默认模板；0 = 回落官方默认。
+	SourceMerchantUID uint `gorm:"column:source_merchant_uid;default:0;index" json:"source_merchant_uid"`
+	// InviteCode 注册时用的原始邀请码，留痕用的，不参与任何判定
+	InviteCode string `gorm:"column:invite_code;size:32;default:''" json:"-"`
 }
 
 func (User) TableName() string { return "user" }

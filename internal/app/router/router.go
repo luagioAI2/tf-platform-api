@@ -46,6 +46,7 @@ type Router struct {
 	WishAPI         *api.WishAPI
 	GameReleaseAPI  *api.GameReleaseAPI
 	MerchantAPI     *api.MerchantAPI
+	TemplateAPI     *api.TemplateAPI
 
 	// RDS 供中间件做黑名单/限流（可为 nil，表示降级运行）
 	RDS *redis.Client
@@ -325,6 +326,14 @@ func (a *Router) registerAPI(app *gin.Engine) {
 		merchantGroup.POST("/apply", a.MerchantAPI.Apply)
 		merchantGroup.POST("/my", a.MerchantAPI.My)
 		merchantGroup.POST("/invite-stats", a.MerchantAPI.InviteStats)
+	}
+
+	// ---- 模板下发与邀请码（需登录）----
+	tplGroup := r.Group("/template").Use(middleware.JWTMiddleware(a.RDS))
+	{
+		tplGroup.POST("/resolve", a.TemplateAPI.Resolve)
+		tplGroup.POST("/bind-invite", a.TemplateAPI.BindInvite)
+		tplGroup.POST("/invite-code", a.TemplateAPI.InviteCode)
 	}
 
 	// ---- 后台（需后台令牌）----

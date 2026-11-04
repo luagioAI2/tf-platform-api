@@ -22,4 +22,5 @@ var APISet = wire.NewSet(
 	WishAPISet,
 	GameReleaseAPISet,
 	MerchantAPISet,
+	TemplateAPISet,
 )

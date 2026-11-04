@@ -153,6 +153,13 @@ func BuildInjector(info buildinfo.Info) (*Injector, func(), error) {
 	merchantAPI := &api.MerchantAPI{
 		Srv: merchantService,
 	}
+	templateRepository := &repository.TemplateRepository{
+		DB: db,
+	}
+	templateService := service.ProvideTemplateService(templateRepository)
+	templateAPI := &api.TemplateAPI{
+		Srv: templateService,
+	}
 	rateLimiter := provideRateLimiter(client)
 	routerRouter := &router.Router{
 		SystemAPI:       systemAPI,
@@ -170,6 +177,7 @@ func BuildInjector(info buildinfo.Info) (*Injector, func(), error) {
 		WishAPI:         wishAPI,
 		GameReleaseAPI:  gameReleaseAPI,
 		MerchantAPI:     merchantAPI,
+		TemplateAPI:     templateAPI,
 		RDS:             client,
 		Limiter:         rateLimiter,
 	}
