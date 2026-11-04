@@ -126,29 +126,63 @@ func TestBlindBoxRemaining(t *testing.T) {
 	}
 }
 
-// TestPickBlindBox 验证开奖（含池子空的情况）
-func TestPickBlindBox(t *testing.T) {
-	pool := []string{"a", "b", "c"}
+// TestPickBlindBoxMany 验证「5 连开」：不重复、不含已拥有、剩余不足时给短的
+func TestPickBlindBoxMany(t *testing.T) {
+	pool := []string{"a", "b", "c", "d", "e", "f", "g"}
 
-	// 用确定性 rand 钉死结果
-	if got := PickBlindBox(pool, nil, 0.0); got != "a" {
-		t.Fatalf("rand=0 → %q, want a", got)
+	// ① 开 5 款：长度对、不重复、全在池子里
+	got := PickBlindBoxMany(pool, nil, 5, 0.42)
+	if len(got) != 5 {
+		t.Fatalf("want 5, got %d (%v)", len(got), got)
 	}
-	if got := PickBlindBox(pool, nil, 0.5); got != "b" {
-		t.Fatalf("rand=0.5 → %q, want b", got)
-	}
-	if got := PickBlindBox(pool, nil, 0.99); got != "c" {
-		t.Fatalf("rand=0.99 → %q, want c", got)
-	}
-
-	// 全部拥有 → 开不出来（调用方必须**先判断**再扣券）
-	if got := PickBlindBox(pool, pool, 0.5); got != "" {
-		t.Fatalf("empty pool should return \"\", got %q", got)
+	seen := map[string]bool{}
+	for _, id := range got {
+		if seen[id] {
+			t.Fatalf("duplicate %q in %v", id, got)
+		}
+		seen[id] = true
 	}
 
-	// rand 越界兜底
-	if got := PickBlindBox(pool, nil, 1.0); got == "" {
-		t.Fatal("rand=1.0 should clamp, not return empty")
+	// ② ★ 「已经解锁的不计算」—— 已拥有的不占名额，也不会被开出来
+	owned := []string{"a", "b", "c"}
+	got = PickBlindBoxMany(pool, owned, 4, 0.42)
+	if len(got) != 4 {
+		t.Fatalf("want 4 from remaining 4, got %d (%v)", len(got), got)
+	}
+	for _, id := range got {
+		if id == "a" || id == "b" || id == "c" {
+			t.Fatalf("开出了已拥有的 %q（%v）", id, got)
+		}
+	}
+
+	// ③ 剩余不足 → 返回短的（调用方负责「整单拒绝」）
+	if got = PickBlindBoxMany(pool, owned, 5, 0.42); len(got) != 4 {
+		t.Fatalf("剩余 4 款要 5 款 → 应返回 4 条，得到 %d（%v）", len(got), got)
+	}
+
+	// ④ 全拥有 → 空（调用方必须**先判断**再扣券）
+	if got = PickBlindBoxMany(pool, pool, 5, 0.42); len(got) != 0 {
+		t.Fatalf("全拥有应为空，得到 %v", got)
+	}
+
+	// ⑤ n = 1 就是老的单开；rand 越界也不崩
+	if got = PickBlindBoxMany(pool, nil, 1, 1.0); len(got) != 1 {
+		t.Fatalf("n=1 rand=1.0 → 应给 1 条，得到 %v", got)
+	}
+	if got = PickBlindBoxMany(pool, nil, 0, 0.5); len(got) != 0 {
+		t.Fatalf("n=0 应为空，得到 %v", got)
+	}
+
+	// ⑥ 确定性：同一个 randVal 必须给出同一批（测试与复现要靠它）
+	first := PickBlindBoxMany(pool, nil, 5, 0.42)
+	again := PickBlindBoxMany(pool, nil, 5, 0.42)
+	if len(again) != 5 {
+		t.Fatalf("again want 5, got %d", len(again))
+	}
+	for i := range first {
+		if first[i] != again[i] {
+			t.Fatalf("同样的 randVal 两次结果不同：%v vs %v", first, again)
+		}
 	}
 }
 

@@ -152,8 +152,25 @@ func (r *GameRepository) GrantGameWithTx(tx *gorm.DB, ug *entities.UserGame) err
 // 过几天可能又给买了。存档里有孩子辛苦攒的进度（农场等级、金币），
 // 删掉等于惩罚孩子 —— 而这不是取消兑换想做的事。
 // 而且重新授予时（`GrantGame`）存档还在，孩子能接着玩。
+//
+// ★★ 必须 `Unscoped()` **硬删**，不能软删。
+//
+//	`user_game` 上有 `uk_uid_game (uid, game_id)` 唯一索引，而软删只是把
+//	`deleted_at` 写上一个时间戳 —— **那一行仍然占着唯一索引**。于是：
+//
+//	  兑换 → 取消（软删）→ 再兑换同一款
+//	    ⇒ `GrantGameWithTx` 的 `ON CONFLICT DO NOTHING` 静默不写
+//	    ⇒ 孩子付了钱、界面说「兑换成功」，库里却一条拥有关系都没有。
+//
+//	实测（`TestWishRedeemAgainAfterCancelGetsGamesBack`）：5 连开取消后
+//	再兑换，5 款只回来 1 款 —— 回来的那款是「上一单恰好没开出来」的那个。
+//	单开盲盒同样中招，只是概率低、不容易被发现。
+//
+//	这条不是新问题，是「软删 + upsert = 写成功却谁也读不出来」的老形状
+//	（见 `.workbuddy-ai/memory/notes/backend-go.md`）。
 func (r *GameRepository) RevokeGameWithTx(tx *gorm.DB, uid uint, gameID string) error {
-	return tx.Where("uid = ? AND game_id = ?", uid, gameID).
+	return tx.Unscoped().
+		Where("uid = ? AND game_id = ?", uid, gameID).
 		Delete(&entities.UserGame{}).Error
 }
 

@@ -169,7 +169,7 @@ type WishItem struct {
 
 	// Pool 盲盒池：候选游戏 id（JSON 数组）
 	//
-	// ⚠️ 真正开奖时还要**减去孩子已拥有的**（见 PickBlindBox）。
+	// ⚠️ 真正开奖时还要**减去孩子已拥有的**（见 PickBlindBoxMany）。
 	// 池子里写死「全部游戏」是对的 —— 拥有关系是每个家庭不同的，不能写进常量。
 	Pool JSONStringArray `gorm:"column:pool;type:text" json:"pool"`
 
@@ -192,8 +192,27 @@ type WishItem struct {
 	// BuyLabel 外链按钮文字，如「去淘宝购买」
 	BuyLabel string `gorm:"column:buy_label;size:32" json:"-"`
 
-	Archived  bool `gorm:"column:archived;default:false;index" json:"archived"`
-	SortOrder int  `gorm:"column:sort_order;default:100" json:"sort_order"`
+	Archived bool `gorm:"column:archived;default:false;index" json:"archived"`
+	// SortOrder 排序权重（小的在前；盲盒永远最前，见 CompareWishItem）
+	//
+	// ⚠️ **不要写 `default:100`**：GORM 在字段是零值时会**省略这一列**，
+	//    让数据库默认值生效 —— 于是种子里的 `SortOrder: 0` 落库变成 100，
+	//    单开盲盒反而排到「5 连开」后面。后台列表和 C 端顺序就这样对不上了，
+	//    而两边都不报错。
+	SortOrder int `gorm:"column:sort_order" json:"sort_order"`
+
+	// UnlockCount 一次开出几款游戏（只对 blindbox 有意义）。
+	//
+	// 1 = 老的单开盲盒；5 = 「5 连开」。
+	//
+	// ★ 「已经解锁的不计算」这条要求落在这里的语义上：开奖时先把孩子
+	//   已拥有的从池子里减掉，再从剩下的里面抽 UnlockCount 款
+	//   （见 PickBlindBoxMany）。所以已拥有的**不占名额**。
+	//
+	// ⚠️ 剩余不足 UnlockCount 时整单拒绝，不是「有几款给几款」——
+	//   卖的是 5 款的价，给 3 款就是缺斤少两，而且孩子没得选。
+	//   判据在 `Redeem` 里。
+	UnlockCount int `gorm:"column:unlock_count;default:1" json:"unlock_count"`
 }
 
 func (WishItem) TableName() string { return "wish_item" }
@@ -268,7 +287,17 @@ type WishOrder struct {
 	PointsHeld int64 `gorm:"column:points_held;default:0" json:"points_held"`
 
 	// OpenedGameID 盲盒开出的游戏 id（只有 blindbox 会有）
+	//
+	// ⚠️ 「一次开 N 款」时这里存**第一个**，完整清单在 OpenedGameIDs。
+	//   两个都写是故意的：老客户端 / 老逻辑只看这一个字段，
+	//   只写清单会让它们在界面上显示成「一款都没开出」。
 	OpenedGameID string `gorm:"column:opened_game_id;size:32;index" json:"opened_game_id"`
+
+	// OpenedGameIDs 一次开出多款时的**完整清单**（`unlock_count > 1`）。
+	//
+	// 空数组 = 老的单开单子（或者不是数字商品）。读的时候必须兼容：
+	// 清单为空就退回看 OpenedGameID。
+	OpenedGameIDs JSONStringArray `gorm:"column:opened_game_ids;type:text" json:"opened_game_ids"`
 
 	// CodeTail 兑换码尾号（只存尾号，不存明文）
 	CodeTail string `gorm:"column:code_tail;size:8" json:"code_tail"`
@@ -383,15 +412,27 @@ func BlindBoxRemaining(pool, owned []string) []string {
 	return out
 }
 
-// PickBlindBox 开一个盲盒。池子空了返回 ""（调用方必须**先判断**再扣券）。
+// PickBlindBoxMany 一次开 n 款盲盒（「5 连开」）。
 //
-// `randVal` 是 [0,1) 的随机数，可注入是为了让测试能钉死结果 ——
-// 用真随机的测试只能断言「开出来的一定在池子里」，
-// 断言不了「全拥有时开不出来」。
-func PickBlindBox(pool, owned []string, randVal float64) string {
+// 返回的每一款都**不在 `owned` 里**，而且互不重复 —— 这正是
+// 「已经解锁的不计算」那条要求：孩子已有的那几款先减掉，不占名额。
+//
+// ★ 剩余不足 n 时返回**短的列表**（有几款给几款），由调用方决定是
+//
+//	「整单拒绝」还是「按剩余给」。现在的口径是整单拒绝（见 `Redeem`）。
+//
+// `randVal` 是 [0,1) 的随机数，可注入是为了让测试钉死结果；
+// 内部由它派生一个确定性的伪随机序列来做洗牌。
+func PickBlindBoxMany(pool, owned []string, n int, randVal float64) []string {
+	if n <= 0 {
+		return nil
+	}
 	remaining := BlindBoxRemaining(pool, owned)
 	if len(remaining) == 0 {
-		return ""
+		return nil
+	}
+	if n > len(remaining) {
+		n = len(remaining)
 	}
 	if randVal < 0 {
 		randVal = 0
@@ -399,11 +440,21 @@ func PickBlindBox(pool, owned []string, randVal float64) string {
 	if randVal >= 1 {
 		randVal = 0.999999
 	}
-	i := int(randVal * float64(len(remaining)))
-	if i >= len(remaining) {
-		i = len(remaining) - 1
+	// 用 randVal 派生一个确定性的 LCG 序列，做 Fisher-Yates 洗牌。
+	// 不在这里调 rand.Float64()：那样测试断言不了「抽的是哪几款」。
+	seed := uint64(randVal*1e9) + 1
+	next := func(m int) int {
+		seed = seed*6364136223846793005 + 1442695040888963407
+		return int((seed >> 33) % uint64(m))
 	}
-	return remaining[i]
+	deck := append([]string(nil), remaining...)
+	out := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		j := i + next(len(deck)-i)
+		deck[i], deck[j] = deck[j], deck[i]
+		out = append(out, deck[i])
+	}
+	return out
 }
 
 // DaysToSave 「大约要攒几天」。

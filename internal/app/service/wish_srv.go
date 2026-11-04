@@ -475,22 +475,35 @@ func (s *WishService) Redeem(ctx context.Context, uid uint, req *entities.WishRe
 		}
 
 		// 数字商品：先算能不能交付，**不能先扣再发现交付不了**
+		//
+		// ★ 2026-11-04 起盲盒可以「一次开 N 款」（`wish_item.unlock_count`）。
+		//   `openedGameIDs` 是完整清单，`openedGameID` 是第一个 ——
+		//   两个都写，老客户端只看后者也不会显示成「一款都没开出」。
 		var openedGameID string
+		var openedGameIDs []string
 		if it.Kind == entities.WishKindBlindbox {
 			ownedSet, err := s.ownedGameSet(ctx, uid)
 			if err != nil {
 				return err
 			}
-			pick := entities.PickBlindBox(it.Pool, keysOf(ownedSet), randomFloat())
-			if pick == "" {
+			n := it.UnlockCount
+			if n < 1 {
+				n = 1
+			}
+			picks := entities.PickBlindBoxMany(it.Pool, keysOf(ownedSet), n, randomFloat())
+			// ⚠️ 剩余不足 n 款时**整单拒绝**，不是「有几款给几款」：
+			// 卖的是「n 款」的价，给少了就是缺斤少两，而且孩子没得选。
+			if len(picks) < n {
 				return apperrors.WithCode(apperrors.WishBlindBoxEmpty)
 			}
-			openedGameID = pick
+			openedGameIDs = picks
+			openedGameID = picks[0]
 		} else if it.Kind == entities.WishKindGamebox {
 			if it.GameID == "" {
 				return apperrors.WithCode(apperrors.WishGameRequired)
 			}
 			openedGameID = it.GameID
+			openedGameIDs = []string{it.GameID}
 		}
 
 		// 订单号要在**扣款之前**定下来 —— 幂等键要用它。
@@ -559,20 +572,32 @@ func (s *WishService) Redeem(ctx context.Context, uid uint, req *entities.WishRe
 		// `PricePaid` 记**券那部分**（游戏用券换的语义），
 		// 混付时积分部分不重复记 —— 它是同一件商品的另一半付款，
 		// 记两次会让「这个游戏花了多少」翻倍。
-		if openedGameID != "" {
-			grant := &entities.UserGame{
-				UID:       uid,
-				GameID:    openedGameID,
-				Source:    entities.GameOwnedByBlindbox,
-				PricePaid: plan.CouponPaid,
-				Currency:  entities.CurrencyCoupon,
-				OrderID:   order.OrderID,
-			}
-			if it.Kind == entities.WishKindGamebox {
-				grant.Source = entities.GameOwnedByWish
-			}
-			if err := s.GameRepo.GrantGameWithTx(tx, grant); err != nil {
-				return err
+		if len(openedGameIDs) > 0 {
+			/* 「5 连开」一单要授 5 款。`PricePaid` 记的是「这款花了多少券」，
+			   所以按款数均摊 —— 每款都写全额的话，5 款加起来是实付的 5 倍，
+			   而 `PricePaid` 正是用来回答「这个游戏花了多少」的。
+			   除不尽的零头记在第一款上（总额仍然对得上）。 */
+			share := plan.CouponPaid / int64(len(openedGameIDs))
+			first := plan.CouponPaid - share*int64(len(openedGameIDs)-1)
+			for i, gid := range openedGameIDs {
+				paid := share
+				if i == 0 {
+					paid = first
+				}
+				grant := &entities.UserGame{
+					UID:       uid,
+					GameID:    gid,
+					Source:    entities.GameOwnedByBlindbox,
+					PricePaid: paid,
+					Currency:  entities.CurrencyCoupon,
+					OrderID:   order.OrderID,
+				}
+				if it.Kind == entities.WishKindGamebox {
+					grant.Source = entities.GameOwnedByWish
+				}
+				if err := s.GameRepo.GrantGameWithTx(tx, grant); err != nil {
+					return err
+				}
 			}
 		}
 
@@ -582,12 +607,13 @@ func (s *WishService) Redeem(ctx context.Context, uid uint, req *entities.WishRe
 		// 它们是退款凭据的两半。少写一个，取消时那半就退不回来，
 		// 而且**不报错**（账本只看 delta 之和，只会表现为「孩子的钱少了」）。
 		fields := map[string]interface{}{
-			"status":         string(entities.WishStatusCommitted),
-			"vouchers_held":  plan.CouponPaid,
-			"points_held":    plan.PointsPaid,
-			"voucher_price":  price,
-			"opened_game_id": openedGameID,
-			"committed_at":   now,
+			"status":          string(entities.WishStatusCommitted),
+			"vouchers_held":   plan.CouponPaid,
+			"points_held":     plan.PointsPaid,
+			"voucher_price":   price,
+			"opened_game_id":  openedGameID,
+			"opened_game_ids": entities.JSONStringArray(openedGameIDs),
+			"committed_at":    now,
 		}
 		if v, ok := shipColumn(req.Ship); ok {
 			fields["ship"] = v
@@ -711,8 +737,25 @@ func (s *WishService) Cancel(ctx context.Context, uid uint, req *entities.WishHa
 		}
 
 		// 数字商品：收回游戏
-		if order.OpenedGameID != "" {
-			if err := s.GameRepo.RevokeGameWithTx(tx, uid, order.OpenedGameID); err != nil {
+		//
+		// ★ 「5 连开」一单授了 5 款，取消必须**全收回**。
+		//   只看 `OpenedGameID` 的话，另外 4 款就成了白送 —— 而且不报错
+		//   （账本只看 delta 之和，界面只会显示「取消成功、券退回来了」）。
+		//   去重是为了兼容「清单里已经包含第一个」的写法，别把同一款收两次。
+		revoke := make([]string, 0, len(order.OpenedGameIDs)+1)
+		seenGame := make(map[string]struct{}, len(order.OpenedGameIDs)+1)
+		for _, gid := range append([]string{order.OpenedGameID}, order.OpenedGameIDs...) {
+			if gid == "" {
+				continue
+			}
+			if _, dup := seenGame[gid]; dup {
+				continue
+			}
+			seenGame[gid] = struct{}{}
+			revoke = append(revoke, gid)
+		}
+		for _, gid := range revoke {
+			if err := s.GameRepo.RevokeGameWithTx(tx, uid, gid); err != nil {
 				return err
 			}
 		}
@@ -1057,11 +1100,44 @@ func (s *WishService) RedeemCode(ctx context.Context, uid uint, req *entities.Wi
 
 // ============================ 辅助 ============================
 
-// hashWishCode 兑换码哈希（去空格、转大写后 sha256）
+// hashWishCode 把用户敲进来的码变成查表用的哈希。
+//
+// ★ 归一化必须和客户端 `domain/gameCode.ts` 的 `normalizeGameCode` **逐条一致**，
+// 否则症状是「码明明是对的，界面说无效」—— 而那是最难查的一类问题。
+//
+// 客户端做三件事：大写、去掉分隔符（空白 / `-` / `_` / `·` / `・`）、
+// 把易混字符纠正过来（`I` `L` → `1`，`O` → `0`）。
+//
+// 原来这里只做了「大写 + 去空格」：能跑，是因为**客户端先归一化再发**。
+// 那是一个隐式契约 —— 换一个客户端、或者哪天界面直接把 `formatGameCode`
+// 的 `ABC-DEF` 发上来，就整批失效。所以这里补齐，把契约写进服务端。
+//
+// ⚠️ 补齐是**向后兼容**的：生成的码本身就不含 I/L/O 也不带分隔符，
+// 老码算出来的哈希一个都不变。
 func hashWishCode(code string) string {
-	normalized := strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(code), " ", ""))
+	normalized := normalizeWishCode(code)
 	h := sha256.Sum256([]byte("tf-wish:" + normalized))
 	return hex.EncodeToString(h[:])
+}
+
+// normalizeWishCode 见 `hashWishCode` 的注释。只做「大小写 / 分隔符 / 易混字符」，
+// **不删**其它非法字符 —— 删了等于让乱输入变成合法的码。
+func normalizeWishCode(code string) string {
+	var b strings.Builder
+	for _, r := range strings.ToUpper(code) {
+		switch r {
+		case ' ', '\t', '\n', '\r', '-', '_', '·', '・':
+			continue
+		case 'I', 'L':
+			// 手写体里 I/L 和 1 分不清；孩子敲错了不该被骂
+			b.WriteRune('1')
+		case 'O':
+			b.WriteRune('0')
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // maskCode 只显示后 4 位

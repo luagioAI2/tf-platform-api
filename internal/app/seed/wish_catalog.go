@@ -17,6 +17,13 @@ import (
 // 与前端 `games/wishCatalog.ts` 的 `WISH_BLINDBOX_ID` 保持一致。
 const WishBlindBoxID = "wish-blindbox"
 
+// WishBlindBox5ID 「一次开 5 款」的盲盒。
+//
+// 与前端 `games/wishCatalog.ts` 的 `WISH_BLINDBOX5_ID` 保持一致。
+// 池子和单开盲盒**完全一样**（全部随包游戏）—— 差别只在 `UnlockCount`：
+// 开奖时先把已拥有的减掉，再从剩下的里抽 5 款，所以「已解锁的不计算」。
+const WishBlindBox5ID = "wish-blindbox-5"
+
 // taobaoSearch 淘宝搜索链接。
 //
 // 前端刻意**不**用具体商品链接：具体链接会失效、会换 SKU、会被下架，
@@ -182,6 +189,26 @@ func EnsureWishCatalog(ctx context.Context, wishRepo *repository.WishRepository,
 		return fmt.Errorf("upsert blindbox: %w", err)
 	}
 
+	// 2b. 5 连开盲盒
+	//
+	// 池子照抄单开的（全部游戏）：拥有关系是每个家庭不同的，
+	// 不能把「剩下的那几款」写进池子。
+	blindbox5 := &entities.WishItem{
+		ItemID:      WishBlindBox5ID,
+		Kind:        entities.WishKindBlindbox,
+		Name:        "游戏盲盒 · 5 连开",
+		Emoji:       "🎉",
+		Tint:        "grape",
+		Pool:        entities.JSONStringArray(pool),
+		UnlockCount: 5,
+		Note:        "一次开出 5 款你还没有的游戏",
+		Notice:      "只会开出你还没有的游戏。没解锁的不足 5 款时换不了 —— 等新的游戏再来。",
+		SortOrder:   1,
+	}
+	if err := wishRepo.UpsertItem(ctx, blindbox5); err != nil {
+		return fmt.Errorf("upsert blindbox5: %w", err)
+	}
+
 	// 3. 游戏盒子（一款一条，从 game 表推导）
 	//    sortOrder 从 100 起：故意排在实物后面（见 PhysicalWishes 注释）
 	for i, g := range games {
@@ -210,6 +237,8 @@ func EnsureWishCatalog(ctx context.Context, wishRepo *repository.WishRepository,
 	logger.ZInfo("wish catalog seeded",
 		zap.Int("games", len(games)),
 		zap.Int("physical", len(PhysicalWishes)),
-		zap.Int("total", 1+len(games)+len(PhysicalWishes)))
+		// 2 = 单开盲盒 + 5 连开盲盒。写死 1 的话日志会少报一条，
+		// 而「库里条数对不上」正是排查目录问题时最先看的那一行。
+		zap.Int("total", 2+len(games)+len(PhysicalWishes)))
 	return nil
 }
