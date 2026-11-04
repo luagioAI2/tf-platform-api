@@ -167,6 +167,16 @@ type WishItem struct {
 	// PartnerName 商家名（如「泡泡玛特」）。实物才有
 	PartnerName string `gorm:"column:partner_name;size:64" json:"partner_name"`
 
+	// MerchantUID 这件东西归哪个商家（`user.id`，0 = 平台自营 / 没有商家）。
+	//
+	// ★ 它只解决**「谁能改这一件」**：商家后台按这一列过滤，
+	//   一个商家改不到别人的商品。`PartnerName` 是**展示用**的名字，
+	//   两者故意分开 —— 同名商家、改名、代运营都不该动到归属。
+	//
+	// ⚠️ 默认 0 不是「未填」而是「平台自营」：历史数据全是没有商家的，
+	//   如果拿它当「空值」去 join，后台的「我的商品」会突然多出几百件。
+	MerchantUID uint `gorm:"column:merchant_uid;index;default:0" json:"merchant_uid"`
+
 	// Pool 盲盒池：候选游戏 id（JSON 数组）
 	//
 	// ⚠️ 真正开奖时还要**减去孩子已拥有的**（见 PickBlindBoxMany）。
