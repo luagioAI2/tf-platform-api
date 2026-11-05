@@ -74,6 +74,9 @@ upsert 只更新 `name` / `contact` / `note`；
 | `POST /api/merchant/my` | 我的申请（含审核结果与后台地址） |
 | `POST /api/merchant/invite-stats` | 家长侧的邀请统计 |
 
+> 商家**配自己的任务/兑换模板**、以及「被推广的用户进来看到哪一套」，
+> 见 [`TEMPLATE.md`](TEMPLATE.md)。商家后台那一页叫「商家中心 → 我的模板」。
+
 **`apply` 请求**
 
 ```json

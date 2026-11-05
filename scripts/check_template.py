@@ -30,6 +30,13 @@ ERR_VALIDATION = 607  # errors.ValidationParamError（binding oneof 失败）
 OK = 0
 FAIL = 0
 
+# ★ 本机代理陷阱：沙箱里 `http_proxy` 指向 127.0.0.1 的一个代理端口，
+#   连 **127.0.0.1:8080** 也会被它接管 —— 症状是 `upstream connect failed`
+#   或一段非 JSON 的错误页（`JSONDecodeError` 看起来像「服务没起」，
+#   于是一路去查端口 / 进程，查半天发现服务好好的）。
+#   本探针只打本机，一律绕开代理。
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
 
 def check(cond, label, detail=''):
     global OK, FAIL
@@ -61,7 +68,7 @@ def post(path, body, token=None):
     if token:
         req.add_header('Authorization', 'Bearer ' + token)
     try:
-        with urllib.request.urlopen(req, timeout=10) as r:
+        with _OPENER.open(req, timeout=10) as r:
             return r.status, json.loads(r.read().decode('utf-8'))
     except urllib.error.HTTPError as e:
         return e.code, json.loads(e.read().decode('utf-8'))

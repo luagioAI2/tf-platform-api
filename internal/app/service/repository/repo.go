@@ -62,6 +62,7 @@ func Models() []interface{} {
 		// 模板（后台配置，App 首启下发）
 		new(entities.Template),
 		new(entities.TemplateItem),
+		new(entities.TemplateApply),
 
 		// 招商
 		new(entities.MerchantApplication),

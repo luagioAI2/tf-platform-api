@@ -332,6 +332,8 @@ func (a *Router) registerAPI(app *gin.Engine) {
 	tplGroup := r.Group("/template").Use(middleware.JWTMiddleware(a.RDS))
 	{
 		tplGroup.POST("/resolve", a.TemplateAPI.Resolve)
+		// apply 是**写**接口（首次铺实例），但幂等：铺过就返回 applied=false
+		tplGroup.POST("/apply", a.TemplateAPI.Apply)
 		tplGroup.POST("/bind-invite", a.TemplateAPI.BindInvite)
 		tplGroup.POST("/invite-code", a.TemplateAPI.InviteCode)
 	}

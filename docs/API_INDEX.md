@@ -34,11 +34,12 @@
 | `GET` | `/api/game/catalog` | 否 | 游戏目录（catalog.json，Ed25519 已签名） |
 | `GET` | `/api/game/catalog.sig` | 否 | 游戏目录签名（单行 base64） |
 
-### 认证 `/api/auth`（10 个）
+### 认证 `/api/auth`（11 个）
 
 | 方法 | 路径 | 鉴权 | 作用 |
 |---|---|---|---|
 | `POST` | `/api/auth/send-sms-code` | 否 | 发送短信验证码 |
+| `POST` | `/api/auth/guest` | 否 | 游客进入（免注册，按设备号建号或取号） |
 | `POST` | `/api/auth/register` | 否 | 手机号注册 |
 | `POST` | `/api/auth/login` | 否 | 手机号 + 密码登录 |
 | `POST` | `/api/auth/sms-login` | 否 | 手机号 + 验证码登录（未注册自动注册） |
@@ -46,7 +47,7 @@
 | `POST` | `/api/auth/refresh` | 否 | 刷新 access token |
 | `POST` | `/api/auth/reset-password` | 否 | 重置密码（验证码） |
 | `POST` | `/api/auth/logout` | 登录 | 登出 |
-| `POST` | `/api/auth/bind-mobile` | 登录 | 绑定手机号（微信用户） |
+| `POST` | `/api/auth/bind-mobile` | 登录 | 绑定手机号（游客转正 / 微信用户补手机号） |
 | `POST` | `/api/auth/change-password` | 登录 | 修改密码（需旧密码） |
 
 ### 用户资料 / 家长设置 `/api/user`（4 个）
@@ -65,7 +66,7 @@
 | `POST` | `/api/wallet/info` | 登录 | 获取钱包余额（三套币） |
 | `POST` | `/api/wallet/ledger` | 登录 | 查询账本流水 |
 | `POST` | `/api/wallet/spend` | 登录 | 扣积分 |
-| `POST` | `/api/wallet/import` | 登录 | 结转本地版留下的余额（幂等） |
+| `POST` | `/api/wallet/import` | 登录 | 把本机旧账一次性结转进这个账号（幂等） |
 
 ### 游戏商城 / 分发 `/api/game`（6 个）
 
@@ -186,6 +187,15 @@
 | `POST` | `/api/merchant/my` | 登录 | 我的招商申请（含审核结果与后台地址） |
 | `POST` | `/api/merchant/invite-stats` | 登录 | 邀请统计（家长侧） |
 
+### /api/template `/api/template`（4 个）
+
+| 方法 | 路径 | 鉴权 | 作用 |
+|---|---|---|---|
+| `POST` | `/api/template/resolve` | 登录 | 解析任务/兑换模板 |
+| `POST` | `/api/template/apply` | 登录 | 首次落地模板（幂等） |
+| `POST` | `/api/template/bind-invite` | 登录 | 绑定商家邀请码 |
+| `POST` | `/api/template/invite-code` | 登录 | 我的邀请码 |
+
 ### 后台（需后台令牌） `/api/admin`（7 个）
 
 | 方法 | 路径 | 鉴权 | 作用 |
@@ -202,12 +212,12 @@
 
 | 项 | 数 |
 |---|---|
-| 路由总数 | **99** |
+| 路由总数 | **105** |
 | GET | 5 |
-| POST | 94 |
-| 需登录 | 77 |
+| POST | 100 |
+| 需登录 | 82 |
 | 后台令牌 | 7 |
-| 公开 / 可选 | 15 |
+| 公开 / 可选 | 16 |
 
 ## 3. 用户列表在后台怎么看
 

@@ -98,3 +98,30 @@ func (c *TemplateAPI) InviteCode(ctx *gin.Context) {
 		"invite_code": entities.MakeInviteCode(uid),
 	})
 }
+
+// Apply 按模板给这个账号铺一次初始任务 / 兑换清单。
+//
+// 为什么单独一个入口、而不是在建号时顺手铺：
+//   · 建号有**三条**路径（游客 / 手机号注册 / 微信），每条都塞一遍迟早漏一条；
+//   · 邀请码是「拿到 token 之后」才绑的，建号那一刻还不知道该用谁的模板。
+// 所以统一成「登录后调一次」，幂等由 template_apply 的 uid 唯一键兜住 ——
+// 客户端每次启动都调也没关系（第二次起返回 applied=false）。
+// @Tags Template[模板]
+// @Summary 首次落地模板（幂等）
+// @Accept json
+// @Produce json
+// @Security ApiKeyAuth
+// @Success 200 {object} ginx.Resp{data=entities.TemplateApplyResp}
+// @Router /api/template/apply [post]
+func (c *TemplateAPI) Apply(ctx *gin.Context) {
+	uid, ok := ginx.MustMine(ctx)
+	if !ok {
+		return
+	}
+	resp, err := c.Srv.Apply(ctx.Request.Context(), uid)
+	if err != nil {
+		ginx.RespErr(ctx, err)
+		return
+	}
+	ginx.RespSucc(ctx, resp)
+}
