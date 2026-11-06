@@ -134,9 +134,13 @@ type ListWishItemReq struct {
 	IncludeArchived bool `json:"include_archived"`
 }
 
-// WishItemView 心愿商品视图（对孩子）
+// WishItemView 心愿商品视图（孩子 / 家长共用）
 //
-// ⚠️ **不含 `BuyURL` / `BuyLabel`** —— 外链只在家长确认页出现，孩子端读不到。
+// ★ 2026-11-06 起 `buy_url` / `buy_label` **也下发给孩子** ——
+// 「去购买」那颗按钮**有没有**全看这两个字段：运营在 tf-admin「商城」
+// 列表里没配链接，孩子端就不渲染按钮（用户原话：「如果没有就不显示」）。
+// 在这之前孩子端那颗按钮永远在，点下去是客户端现拼的淘宝搜索页，
+// 和后台配的链接毫无关系。
 type WishItemView struct {
 	WishItem
 	// Open 本家庭是否已开放（家长定过价）
@@ -166,15 +170,23 @@ type WishItemView struct {
 	// 孩子端也要这个字段：兑换成功后 offer 会被关掉，
 	// 卡片要据此回到「我想要」（而不是一直挂着「已兑换」）。
 	OneTime bool `json:"one_time"`
+	// BuyURL 运营在 tf-admin「商城」列表里配的外链（淘宝 / 京东 …）。
+	//
+	// ⚠️ **空串 = 没配** ⇒ 客户端不渲染「去购买」。
+	//    别在这里补一条默认的淘宝搜索页 —— 那就又变回
+	//    「后台没配、按钮还在」，正是这一轮要修的东西。
+	BuyURL string `json:"buy_url,omitempty"`
+	// BuyLabel 外链按钮文字（空 = 客户端用「去购买」）
+	BuyLabel string `json:"buy_label,omitempty"`
 }
 
-// WishItemDetailResp 心愿商品详情（家长端，含外链）
+// WishItemDetailResp 心愿商品详情
+//
+// 外链已经在 `WishItemView` 里了（2026-11-06 起两端都下发），这里
+// **不再重复声明** —— 两个同名字段叠在一起，读代码的人会以为详情页和
+// 列表页的外链是两套口径，改一处忘一处。
 type WishItemDetailResp struct {
 	WishItemView
-	// BuyURL 外链（**仅家长端返回**）
-	BuyURL string `json:"buy_url,omitempty"`
-	// BuyLabel 外链按钮文字
-	BuyLabel string `json:"buy_label,omitempty"`
 }
 
 // WishReq 孩子表明意向（「想要这个」）

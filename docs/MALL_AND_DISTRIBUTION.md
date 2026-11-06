@@ -421,7 +421,10 @@ pending := (status == committed || status == confirmed) && openedGameID == ""
 
 ### 3.10 隐私
 
-- **外链 `buy_url` 只在家长端返回**（`as_parent: true`），孩子端读不到
+- **外链 `buy_url` 两端都返回**（2026-11-06 改）：它是「去购买」按钮**存不存在**
+  的唯一判据 —— 运营在 tf-admin 留空，孩子卡片弹框和家长确认页都不显示按钮。
+  它只经 `openExternal` 打开，**不写进 `href`**（所以「孩子端 DOM 里没有 taobao」
+  那条断言仍然成立）
 - **收货信息在孩子端脱敏**：手机号 `****8000`、详细地址不回
 - `purge_after` 字段：下单后 90 天自动抹除（预留）
 

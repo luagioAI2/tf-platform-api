@@ -197,7 +197,11 @@ type WishItem struct {
 	// Notice 兑换须知（「不指定款式」这类必须写清楚）
 	Notice string `gorm:"column:notice;size:255" json:"notice"`
 
-	// BuyURL 外链。**只在家长确认页出现**，孩子端读不到
+	// BuyURL 外链（运营在 tf-admin「商城」列表里配的那条）。
+	//
+	// ⚠️ 这里标 `json:"-"` 是因为**这个结构体不直接序列化** ——
+	// 对外的字段在 `WishItemView.BuyURL`（2026-11-06 起两端都下发，
+	// 空串 = 没配 = 客户端不渲染「去购买」）。两处别各写一套口径。
 	BuyURL string `gorm:"column:buy_url;size:512" json:"-"`
 	// BuyLabel 外链按钮文字，如「去淘宝购买」
 	BuyLabel string `gorm:"column:buy_label;size:32" json:"-"`

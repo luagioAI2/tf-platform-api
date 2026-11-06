@@ -162,14 +162,10 @@ func (s *WishService) Detail(ctx context.Context, uid uint, itemID string, isPar
 	}
 
 	base := s.buildItemView(ctx, uid, it, offer, ownedSet, vouchers, active)
-	resp := &entities.WishItemDetailResp{WishItemView: *base}
-
-	// ⚠️ 外链**只在家长端返回** —— 孩子端读不到
-	if isParent {
-		resp.BuyURL = it.BuyURL
-		resp.BuyLabel = it.BuyLabel
-	}
-	return resp, nil
+	// 外链跟着视图走（2026-11-06 起两端都下发）—— 见 `WishItemView` 的注释。
+	// `isParent` 这一层已经用不上了，留着只是为了不动调用方签名。
+	_ = isParent
+	return &entities.WishItemDetailResp{WishItemView: *base}, nil
 }
 
 // buildItemView 组装商品视图
@@ -178,6 +174,12 @@ func (s *WishService) buildItemView(
 	offer *entities.WishOffer, ownedSet map[string]struct{}, vouchers int64, active *entities.WishOrder,
 ) *entities.WishItemView {
 	view := &entities.WishItemView{WishItem: *it}
+
+	// 外链：运营在 tf-admin「商城」列表里配的那条，**孩子端也下发**。
+	// 空串是有意义的（= 没配 = 客户端不渲染「去购买」），所以原样带出去，
+	// 不做任何兜底 —— 兜底会让「后台没配」和「配了」在界面上长得一样。
+	view.BuyURL = it.BuyURL
+	view.BuyLabel = it.BuyLabel
 
 	view.Open = offer.IsOpen()
 	if view.Open {
