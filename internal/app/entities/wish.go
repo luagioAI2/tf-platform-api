@@ -249,6 +249,18 @@ type WishOffer struct {
 	OpenedAt int64 `gorm:"column:opened_at;default:0" json:"opened_at"`
 	// ClosedAt 关闭时间（0 = 仍开放）
 	ClosedAt int64 `gorm:"column:closed_at;default:0" json:"closed_at"`
+
+	// OneTime 是否「一次性兑换」（2026-11-06）。
+	//
+	// true  = 兑换成功那一刻自动关闭这一行（`closed_at` 置为当前时间）：
+	//         商品从「兑换」列表里消失，心愿商城里回到「我想要」，
+	//         孩子可以重新许愿、家长重新定价。
+	// false = 可以反复兑换，「兑换」列表里一直留着，并显示已兑换次数。
+	//
+	// ⚠️ 关闭动作必须在**兑换的那个事务里**做（`WishService.Redeem`），
+	//    不能交给客户端再发一次 set-offer —— 那一次失败时券已经扣了、
+	//    商品却还挂在兑换列表上，而且不报错。
+	OneTime bool `gorm:"column:one_time;default:false" json:"one_time"`
 }
 
 func (WishOffer) TableName() string { return "wish_offer" }

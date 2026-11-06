@@ -128,9 +128,23 @@ func (r *WishRepository) UpsertOffer(ctx context.Context, o *entities.WishOffer)
 	return r.DB.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "uid"}, {Name: "item_id"}},
 		DoUpdates: clause.AssignmentColumns([]string{
-			"voucher_price", "diamond_price", "opened_at", "closed_at", "updated_at",
+			"voucher_price", "diamond_price", "opened_at", "closed_at", "one_time", "updated_at",
 		}),
 	}).Create(o).Error
+}
+
+// CloseOfferWithTx 在事务里关闭一件商品的开放设置（一次性兑换成交后用）。
+//
+// 只写 `closed_at`，**不删行** —— 孩子之前换过的历史还要能解释，
+// 而且家长那一侧「上次定过多少价」也得查得回来。
+func (r *WishRepository) CloseOfferWithTx(ctx context.Context, tx *gorm.DB, uid uint, itemID string, at int64) error {
+	db := r.DB
+	if tx != nil {
+		db = tx
+	}
+	return db.WithContext(ctx).Model(&entities.WishOffer{}).
+		Where("uid = ? AND item_id = ?", uid, itemID).
+		Update("closed_at", at).Error
 }
 
 // ============================ 心愿单 ============================

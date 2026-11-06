@@ -161,6 +161,11 @@ type WishItemView struct {
 	DaysToSave int `json:"days_to_save"`
 	// BlindBoxRemaining 盲盒池里还剩几款没拥有（只对 blindbox 有意义）
 	BlindBoxRemaining int `json:"blind_box_remaining"`
+	// OneTime 是否一次性兑换（家长定价时设定，2026-11-06）
+	//
+	// 孩子端也要这个字段：兑换成功后 offer 会被关掉，
+	// 卡片要据此回到「我想要」（而不是一直挂着「已兑换」）。
+	OneTime bool `json:"one_time"`
 }
 
 // WishItemDetailResp 心愿商品详情（家长端，含外链）
@@ -208,6 +213,12 @@ type WishSetOfferReq struct {
 	VoucherPrice int64 `json:"voucher_price" binding:"omitempty,min=0,max=100000"`
 	// DiamondPrice 钻石价（0 = 不卖）
 	DiamondPrice int64 `json:"diamond_price" binding:"omitempty,min=0,max=100000"`
+	// OneTime 是否一次性兑换。
+	//
+	// ⚠️ 用**指针**：不传（nil）= 保持原值，false = 显式改成「可重复」。
+	// 用 bool 的话，「关闭商品」（voucher_price=0）那条请求也会顺手把
+	// 一次性标记冲成 false，家长下次重新开放时语义就悄悄变了。
+	OneTime *bool `json:"one_time"`
 }
 
 // WishOrderView 心愿单视图

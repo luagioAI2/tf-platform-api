@@ -183,6 +183,11 @@ func (s *WishService) buildItemView(
 	if view.Open {
 		view.VoucherPrice = offer.VoucherPrice
 	}
+	// 一次性标记跟着 offer 走（关闭之后仍然要返回 —— 孩子那一侧要据此
+	// 判断「这件东西是一次性的、已经换过了」，而不是「爸妈关掉了」）。
+	if offer != nil {
+		view.OneTime = offer.OneTime
+	}
 
 	// 券够不够
 	if view.VoucherPrice > 0 {
@@ -312,6 +317,23 @@ func (s *WishService) SetOffer(ctx context.Context, uid uint, req *entities.Wish
 		VoucherPrice: req.VoucherPrice,
 		DiamondPrice: req.DiamondPrice,
 	}
+	/*
+	 * 一次性兑换标记（2026-11-06）。
+	 *
+	 * `OneTime` 是**指针**：nil 表示这次请求没提这件事 ⇒ 保留库里原来的值。
+	 * 必须这么处理，否则「关闭商品」（`voucher_price = 0`）那条请求
+	 * 会顺手把它冲成 false —— 家长下次重新开放时，一件明明是一次性的
+	 * 玩具就变成可以无限兑换了，而且界面上看不出任何异常。
+	 */
+	if cur, err := s.Repo.GetOffer(ctx, uid, req.ItemID); err != nil {
+		return nil, apperrors.WithError(err)
+	} else if cur != nil {
+		o.OneTime = cur.OneTime
+	}
+	if req.OneTime != nil {
+		o.OneTime = *req.OneTime
+	}
+
 	if req.VoucherPrice > 0 {
 		o.OpenedAt = now
 		o.ClosedAt = 0
@@ -625,6 +647,23 @@ func (s *WishService) Redeem(ctx context.Context, uid uint, req *entities.WishRe
 		}
 		if rows == 0 {
 			return apperrors.WithCode(apperrors.WishStatusNotAllowed)
+		}
+
+		/*
+		 * 一次性兑换：成交那一刻就把 offer 关掉（2026-11-06）。
+		 *
+		 * 关掉 = 从「兑换」列表里消失 + 心愿商城回到「我想要」。
+		 * **必须在同一个事务里**做：交给客户端再发一次 set-offer 的话，
+		 * 那次请求失败时券已经扣了、商品却还挂在兑换列表上 ——
+		 * 孩子能再换一遍，而两边都不报错。
+		 *
+		 * ⚠️ 关闭的是 offer（本家庭的开放设置），不是商品本身：
+		 *    目录是常量，下架/上架是运营的事。
+		 */
+		if offer.OneTime {
+			if err := s.Repo.CloseOfferWithTx(ctx, tx, uid, it.ItemID, now); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
