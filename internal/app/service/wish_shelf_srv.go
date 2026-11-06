@@ -177,7 +177,8 @@ func (s *WishService) History(ctx context.Context, uid uint, limit int) ([]*enti
 
 		var buyURL, buyLabel string
 		if it, err := s.Repo.GetItem(ctx, o.ItemID); err == nil && it != nil {
-			buyURL, buyLabel = it.BuyURL, it.BuyLabel
+			// `buy_open` 关掉 = 这里也空（记录页那颗「去购买」跟着消失）
+			buyURL, buyLabel = it.BuyLink()
 		}
 
 		rows = append(rows, &entities.HistoryRow{

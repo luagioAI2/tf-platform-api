@@ -206,6 +206,19 @@ type WishItem struct {
 	// BuyLabel 外链按钮文字，如「去淘宝购买」
 	BuyLabel string `gorm:"column:buy_label;size:32" json:"-"`
 
+	// BuyOpen 是否开放购买（默认开）。
+	//
+	// ★ 给「淘宝 / 京东那条链接突然买不了了」用的**临时开关**：
+	//   关掉之后 `BuyLink()` 返回空 ⇒ 孩子卡片弹框和家长确认页都不摆
+	//   「去购买」按钮，但商品照旧在列表里（孩子能许愿、家长能自己买完
+	//   再来点「已经买好了」收尾）。
+	//   ⚠️ 和 `archived`（下架）不是一回事：下架是**把商品藏起来**。
+	//
+	// ⚠️ `default:true` 不能省：AutoMigrate 靠它给存量行补 1。
+	//    没有它，加列之后老商品全读成 false —— 全站「去购买」一起消失，
+	//    而且**不报错**（2026-11-06 晚加列时特意验过）。
+	BuyOpen bool `gorm:"column:buy_open;default:true" json:"-"`
+
 	Archived bool `gorm:"column:archived;default:false;index" json:"archived"`
 	// SortOrder 排序权重（小的在前；盲盒永远最前，见 CompareWishItem）
 	//
@@ -230,6 +243,20 @@ type WishItem struct {
 }
 
 func (WishItem) TableName() string { return "wish_item" }
+
+// BuyLink 「去购买」按钮要用的外链和文字。
+//
+// ★ **两个条件同时成立才有链接**：运营配了 `buy_url`，而且 `buy_open` 开着。
+//
+//	四个下发点（商品列表 / 详情 / 家长订单 / 兑换记录）都调这一个方法 ——
+//	各写一遍的话，总有一处忘记判 `buy_open`，表现是「后台关了，
+//	某个页面还挂着一颗点进去 404 的按钮」。
+func (it *WishItem) BuyLink() (url, label string) {
+	if it == nil || !it.BuyOpen {
+		return "", ""
+	}
+	return it.BuyURL, it.BuyLabel
+}
 
 // ============================ 家长定价 ============================
 

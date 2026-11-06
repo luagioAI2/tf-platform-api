@@ -178,8 +178,8 @@ func (s *WishService) buildItemView(
 	// 外链：运营在 tf-admin「商城」列表里配的那条，**孩子端也下发**。
 	// 空串是有意义的（= 没配 = 客户端不渲染「去购买」），所以原样带出去，
 	// 不做任何兜底 —— 兜底会让「后台没配」和「配了」在界面上长得一样。
-	view.BuyURL = it.BuyURL
-	view.BuyLabel = it.BuyLabel
+	// ★ 2026-11-06 晚：`buy_open` 关掉时 `BuyLink()` 也返回空 ⇒ 同一条判据。
+	view.BuyURL, view.BuyLabel = it.BuyLink()
 
 	view.Open = offer.IsOpen()
 	if view.Open {
@@ -929,8 +929,8 @@ func (s *WishService) OrderView(ctx context.Context, uid uint, orderID string, i
 
 	if isParent {
 		if it, err := s.Repo.GetItem(ctx, o.ItemID); err == nil && it != nil {
-			view.BuyURL = it.BuyURL
-			view.BuyLabel = it.BuyLabel
+			// `buy_open` 关掉时这里也是空 ⇒ 家长确认页退回「家长自己去买」
+			view.BuyURL, view.BuyLabel = it.BuyLink()
 		}
 	} else if view.Ship != nil {
 		// 孩子端：收货信息脱敏
@@ -960,8 +960,8 @@ func (s *WishService) ListOrders(ctx context.Context, uid uint, req *entities.Li
 		}
 		if isParent {
 			if it, err := s.Repo.GetItem(ctx, o.ItemID); err == nil && it != nil {
-				view.BuyURL = it.BuyURL
-				view.BuyLabel = it.BuyLabel
+				// `buy_open` 关掉时这里也是空 ⇒ 同上
+				view.BuyURL, view.BuyLabel = it.BuyLink()
 			}
 		} else if view.Ship != nil {
 			view.Ship = view.Ship.Masked()
