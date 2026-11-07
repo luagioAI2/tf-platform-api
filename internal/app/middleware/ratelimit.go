@@ -2,7 +2,9 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -130,13 +132,36 @@ func (m *memoryLimiter) allow(key string, limit int, window time.Duration) bool 
 
 // ============================ 超时 ============================
 
+// TimeoutExempt 描述一个「用更长的超时」的路径前缀。
+//
+// 为什么需要：20 秒是给 JSON 接口设的。游戏包上传是**上行流量**，
+// 6MB 的包在 150KB/s 的链路上要 40 秒 —— 实测 24 秒时被 504 掐断
+// （`{"code":501,"error":"request timeout"}`），而客户端那头只看到「发布失败」。
+// 同一个包在局域网里 1.4 秒就传完，所以这个问题**只会在真机/慢网出现**，
+// 本地怎么试都是绿的。
+type TimeoutExempt struct {
+	Prefix   string
+	Duration time.Duration
+}
+
 // TimeoutMiddleware 为请求设置超时，超时后返回 504。
 //
 // 注意：Go 的 http.Server 没有内置的「单请求处理超时」，
 // 必须靠 context 传递到下游（DB / Redis / HTTP 调用）才能真正中断。
-func TimeoutMiddleware(d time.Duration) gin.HandlerFunc {
+func TimeoutMiddleware(d time.Duration, exempts ...TimeoutExempt) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		ctx, cancel := context.WithTimeout(c.Request.Context(), d)
+		limit := d
+		path := c.Request.URL.Path
+		for _, e := range exempts {
+			if e.Prefix != "" && strings.HasPrefix(path, e.Prefix) {
+				limit = e.Duration
+				break
+			}
+		}
+		if limit <= 0 {
+			limit = d
+		}
+		ctx, cancel := context.WithTimeout(c.Request.Context(), limit)
 		defer cancel()
 
 		c.Request = c.Request.WithContext(ctx)
@@ -165,23 +190,46 @@ func TimeoutMiddleware(d time.Duration) gin.HandlerFunc {
 
 // ============================ 请求体限制 ============================
 
+// BodyLimitExempt 描述一个「不吃全局上限」的路径前缀，以及它自己的上限。
+//
+// 为什么需要它：全局上限是给 JSON 接口设的（4MB 足够）。
+// 但游戏包上传是同一条链上的另一个量级（实测 21 款里 13 款 > 4MB），
+// 一刀切会把正常业务拦死，而报错只有一句 `10030201`，看不出是「上限」问题。
+type BodyLimitExempt struct {
+	Prefix   string
+	MaxBytes int64 // 0 表示不限制
+}
+
 // BodyLimitMiddleware 限制请求体大小（防止大 payload 打爆内存）。
-// maxBytes 建议 1~10MB；文件上传接口应单独放宽或跳过。
-func BodyLimitMiddleware(maxBytes int64) gin.HandlerFunc {
+//
+// maxBytes 建议 1~10MB。文件上传这类**必然超过**的路径走 `exempts` 单独放宽，
+// 不要直接把全局上限抬高 —— 那等于把所有 JSON 接口的防护一起拆掉。
+func BodyLimitMiddleware(maxBytes int64, exempts ...BodyLimitExempt) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if maxBytes <= 0 {
+		limit := maxBytes
+		path := c.Request.URL.Path
+		for _, e := range exempts {
+			if e.Prefix != "" && strings.HasPrefix(path, e.Prefix) {
+				limit = e.MaxBytes
+				break
+			}
+		}
+		if limit <= 0 {
 			c.Next()
 			return
 		}
-		if c.Request.ContentLength > maxBytes {
+		if c.Request.ContentLength > limit {
+			/* 把上限写进 msg：原来只有一句 `request body too large`，
+			   发布脚本那头只能看到 code=10030201，得回来翻源码才知道是 4MB。
+			   实测就是这样卡了半个下午。 */
 			ginx.ResJSON(c, http.StatusRequestEntityTooLarge, &ginx.Resp{
 				Code: errors.FileTooLarge,
-				Msg:  "request body too large",
+				Msg:  fmt.Sprintf("request body too large: %d bytes > limit %d", c.Request.ContentLength, limit),
 			})
 			c.Abort()
 			return
 		}
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes)
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
 		c.Next()
 	}
 }

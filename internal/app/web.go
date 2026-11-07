@@ -66,10 +66,36 @@ func InitGinEngine(r router.IRouter, info buildinfo.Info) *gin.Engine {
 	engine.Use(middleware.SecurityHeadersMiddleware())
 	engine.Use(middleware.CORSMiddleware())
 	if cfg.MaxBodyBytes > 0 {
-		engine.Use(middleware.BodyLimitMiddleware(cfg.MaxBodyBytes))
+		/* 游戏包上传单独放宽（`UploadMaxBodyBytes`）。
+		   原来这里只有全局 4MB ⇒ 21 款里 13 款（`claw3d` 4.98MB 起）根本发不上去，
+		   而且报错只有 `10030201`，看不出是上限问题。 */
+		/* ★ 没配（0）要**回落**到全局上限，不能让它是 0 ——
+		   在 `BodyLimitMiddleware` 里 0 的含义是「不限制」，
+		   漏配一行配置就变成「上传接口无上限」，那是安全漏洞而不是宽容。 */
+		uploadMax := cfg.UploadMaxBodyBytes
+		if uploadMax <= 0 {
+			uploadMax = cfg.MaxBodyBytes
+		}
+		exempts := []middleware.BodyLimitExempt{
+			{Prefix: "/api/admin/game/release/upload", MaxBytes: uploadMax},
+		}
+		engine.Use(middleware.BodyLimitMiddleware(cfg.MaxBodyBytes, exempts...))
 	}
 	if cfg.RequestTimeoutSeconds > 0 {
-		engine.Use(middleware.TimeoutMiddleware(time.Duration(cfg.RequestTimeoutSeconds) * time.Second))
+		/* 上传路径单独给更长的超时（见 `UploadTimeoutSeconds` 的注释）：
+		   同一个包在局域网 1.4 秒、在 150KB/s 的链路上 40 秒，
+		   20 秒的全局超时会让「慢网发布」在 24 秒处 504。 */
+		uploadTimeout := cfg.UploadTimeoutSeconds
+		if uploadTimeout <= 0 {
+			uploadTimeout = cfg.RequestTimeoutSeconds
+		}
+		engine.Use(middleware.TimeoutMiddleware(
+			time.Duration(cfg.RequestTimeoutSeconds)*time.Second,
+			middleware.TimeoutExempt{
+				Prefix:   "/api/admin/game/release/upload",
+				Duration: time.Duration(uploadTimeout) * time.Second,
+			},
+		))
 	}
 
 	// ---- 静态资源 ----

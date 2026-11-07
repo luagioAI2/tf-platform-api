@@ -42,7 +42,9 @@ ServiceSettings:
   EnableMetrics: true # Prometheus /metrics
 
   # ===== 性能与保护（5W 并发关键）=====
-  MaxBodyBytes: 4194304 # 单请求体上限 4MB
+  MaxBodyBytes: 4194304 # 单请求体上限 4MB（JSON 接口）
+  UploadTimeoutSeconds: 180 # 上传路径单独放宽到 180 秒（慢网 6MB 要 40 秒，20 秒会 504）
+  UploadMaxBodyBytes: 67108864 # 游戏包上传单独放宽到 64MB（21 款里 13 款 > 4MB）
   RequestTimeoutSeconds: 20 # 单请求处理超时，超时返回 504
   # 可信代理：部署在 Nginx/SLB 后**必须**配置（生产环境启动校验强制）
   # 不配置时 gin 不信任任何 X-Forwarded-For，所有请求 IP 都会是代理 IP
@@ -50,7 +52,8 @@ ServiceSettings:
     - 10.0.0.0/8
     - 172.16.0.0/12
   ReadHeaderTimeoutSeconds: 5 # 防慢速攻击
-  ReadTimeoutSeconds: 30
+  ReadTimeoutSeconds: 180 # 整请求读超时。原来 30 秒 ⇒ 6MB 包在 150KB/s 的链路上（35 秒）会被连接层掐断；
+  # 慢速攻击的防护在 ReadHeaderTimeoutSeconds（5 秒）那一层，不靠这一条。
   WriteTimeoutSeconds: 60
   IdleTimeoutSeconds: 90
   MaxHeaderBytes: 1048576 # 1MB

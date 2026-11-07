@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -49,8 +50,27 @@ type ServiceSettings struct {
 	// ===== 性能与保护（5W 并发关键配置）=====
 
 	// MaxBodyBytes 单个请求体上限（字节）。0 表示不限制。
-	// 建议 4MB；文件上传接口单独用 MaxMultipartMemory 控制。
+	// 建议 4MB。
+	//
+	// ⚠️ 这里原来写的是「文件上传接口单独用 MaxMultipartMemory 控制」—— **不对**。
+	//    `gin.MaxMultipartMemory` 只是「解析 multipart 时内存里放多少」，
+	//    超了会落临时文件，它**不拒绝任何请求**。真正拒绝的是本中间件。
+	//    结果是：全局 4MB 把游戏包上传也一起卡死（实测 21 款里 13 款 > 4MB，
+	//    `claw3d` 4.98MB 直接 `10030201 文件过大`，而报错里连上限都没说）。
+	//    要放宽的是 UploadMaxBodyBytes 那条**按路径的例外**，见下。
 	MaxBodyBytes int64 `yaml:"MaxBodyBytes"`
+
+	// UploadTimeoutSeconds 「按路径例外」的超时：游戏包上传。
+	// 0 表示跟 RequestTimeoutSeconds 一样。
+	//
+	// 为什么必须单独给：20 秒是给 JSON 接口的。6MB 的包在 150KB/s 的链路上要 40 秒，
+	// 实测 24 秒就被 504 掐断。**局域网 1.4 秒传完，所以本地永远试不出来。**
+	UploadTimeoutSeconds int `yaml:"UploadTimeoutSeconds"`
+
+	// UploadMaxBodyBytes 「按路径例外」的上限：游戏包上传（`/api/admin/game/release/upload`）。
+	// 0 表示跟 MaxBodyBytes 一样。插件包现在 0.1~6MB，给 64MB 足够，
+	// 再大就不该走这条同步上传了（该走 OSS + 填 URL 那条路）。
+	UploadMaxBodyBytes int64 `yaml:"UploadMaxBodyBytes"`
 
 	// RequestTimeoutSeconds 单请求处理超时（秒）。0 表示不限制。
 	// 超时后返回 504，并通过 context 中断下游 DB/Redis 调用。
@@ -425,25 +445,65 @@ func applyEnvOverrides(c *Config) {
 	}
 }
 
+// secretKeyRe 命中就按密钥处理（大小写不敏感，按**字段名**匹配）。
+//
+// ★★ 为什么改成按名字扫，而不是继续一条条手写（2026-11-07 事故）：
+//
+//	原来的白名单里漏了 `GameDistribution.CatalogPrivateKey` ——
+//	启动日志里**把 Ed25519 私钥原样打了出来**（实测 grep 得到完整 base64）。
+//	那把钥匙能签一份「任意代码」的游戏目录，下发到孩子手机上。
+//	白名单的毛病是「新加一个密钥字段，没人记得回来补一行」，而漏掉**不报错**。
+var secretKeyRe = regexp.MustCompile(`(?i)(secret|password|privatekey|private_key|apikey|api_key|accesskey|access_key|signkey|sign_key|token)`)
+
+// maskValue 把整个配置树里**名字像密钥**的字符串值换成 `ab***yz`。
+//
+// 保留首尾各 2 字符是为了排查「线上配的是哪把钥匙」——
+// 全打 `***` 的话，运维没法区分「没配」和「配错了」。
+func maskValue(v interface{}) interface{} {
+	switch x := v.(type) {
+	case map[string]interface{}:
+		for k, sub := range x {
+			if s, ok := sub.(string); ok && secretKeyRe.MatchString(k) {
+				x[k] = mask(s)
+				continue
+			}
+			x[k] = maskValue(sub)
+		}
+		return x
+	case []interface{}:
+		for i, sub := range x {
+			x[i] = maskValue(sub)
+		}
+		return x
+	default:
+		return v
+	}
+}
+
 // PrintWithJSON 输出脱敏后的配置（用于启动日志）
 func PrintWithJSON() string {
 	safe := config
+	/* 数据库连接串里带账号密码，但它整个是**一个字符串**（字段名叫 DataSource，
+	   不命中 secretKeyRe），所以单独处理：整条换掉，只留类型。
+	   副本 / 搜索库一律不打（生产会配多台，泄漏面更大）。 */
 	safe.DBSettings.DataSource = mask(safe.DBSettings.DataSource)
 	safe.DBSettings.DataSourceReplicas = nil
 	safe.DBSettings.DataSourceSearchReplicas = nil
-	safe.RDBSettings.Password = mask(safe.RDBSettings.Password)
-	safe.ServiceSettings.JwtSignKey = mask(safe.ServiceSettings.JwtSignKey)
-	safe.ServiceSettings.AdminSignKey = mask(safe.ServiceSettings.AdminSignKey)
-	safe.ServiceSettings.TrustedUserCode = mask(safe.ServiceSettings.TrustedUserCode)
-	safe.UploadSettings.Minio.SecretKey = mask(safe.UploadSettings.Minio.SecretKey)
-	safe.UploadSettings.AwsS3.SecretKey = mask(safe.UploadSettings.AwsS3.SecretKey)
-	safe.UploadSettings.CloudflareR2.SecretAccessKey = mask(safe.UploadSettings.CloudflareR2.SecretAccessKey)
 
 	b, err := json.Marshal(safe)
 	if err != nil {
 		return "{}"
 	}
-	return string(b)
+	// 先转成 map 再按字段名扫一遍，剩下的密钥字段不用再一个个列
+	var tree interface{}
+	if err := json.Unmarshal(b, &tree); err != nil {
+		return "{}"
+	}
+	out, err := json.Marshal(maskValue(tree))
+	if err != nil {
+		return "{}"
+	}
+	return string(out)
 }
 
 // mask 只保留首尾各 2 个字符
