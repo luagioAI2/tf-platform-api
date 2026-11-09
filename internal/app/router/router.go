@@ -343,8 +343,14 @@ func (a *Router) registerAPI(app *gin.Engine) {
 	{
 		// 游戏版本发布
 		admin.POST("/game/release/publish", a.GameReleaseAPI.Publish)
+		// 上传包并发布（multipart）。包落在 `<StaticPath>/games/…`，
+		// 由现成的 `/public` 静态路由托管 —— 生产换成对象存储时只改 PackageBaseURL。
+		admin.POST("/game/release/upload", a.GameReleaseAPI.Upload)
 		admin.POST("/game/release/list", a.GameReleaseAPI.List)
 		admin.POST("/game/release/delete", a.GameReleaseAPI.Delete)
+		// 上架 / 下架（active 布尔）。后台的「下架」走这里 ——
+		// 只有平台这一侧会失效目录缓存，直接改库的话目录最长还挂 5 分钟。
+		admin.POST("/game/release/set-active", a.GameReleaseAPI.SetActive)
 		admin.POST("/game/release/self-check", a.GameReleaseAPI.SelfCheck)
 
 		// 招商审核

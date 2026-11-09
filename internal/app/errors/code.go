@@ -153,6 +153,7 @@ const (
 	GamePackageTooLarge  = 10080301 // 游戏包过大
 	GameSHA256Invalid    = 10080401 // SHA-256 格式不合法
 	GameCatalogSignFail  = 10080501 // 目录签名失败
+	GamePackageInvalid   = 10080601 // 游戏包内容不对（不是 .mjs/.zip，或 zip 里没有 *.plugin.mjs）
 )
 
 // ============================ 招商域 10 10 xx xx ============================

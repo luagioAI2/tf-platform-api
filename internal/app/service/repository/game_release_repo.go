@@ -142,8 +142,17 @@ func (r *GameReleaseRepository) Delete(ctx context.Context, releaseID uint) erro
 
 // Deactivate 下架某版本（active = false）
 func (r *GameReleaseRepository) Deactivate(ctx context.Context, releaseID uint) error {
+	return r.SetActive(ctx, releaseID, false)
+}
+
+// SetActive 上架 / 下架某版本。
+//
+// 之所以要能「再上架」：下架是运营手滑的高频动作，而重新发布同一版本号
+// 会被唯一约束挡住（`GameReleaseDuplicate`）—— 没有这个反向开关，
+// 误点一次就再也回不来了，只能换个版本号重发。
+func (r *GameReleaseRepository) SetActive(ctx context.Context, releaseID uint, active bool) error {
 	return r.DB.WithContext(ctx).Model(&entities.GameRelease{}).
-		Where("id = ?", releaseID).Update("active", false).Error
+		Where("id = ?", releaseID).Update("active", active).Error
 }
 
 // Upsert 幂等写入（发布脚本用）

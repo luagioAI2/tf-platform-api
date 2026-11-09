@@ -1,7 +1,11 @@
 package api
 
 import (
+	"fmt"
+	"strings"
+
 	"tf-api/internal/app/entities"
+	apperrors "tf-api/internal/app/errors"
 	"tf-api/internal/app/ginx"
 	"tf-api/internal/app/service"
 
@@ -147,6 +151,58 @@ func (c *GameReleaseAPI) Publish(ctx *gin.Context) {
 	ginx.RespSucc(ctx, rel)
 }
 
+// Upload 上传包并发布（multipart）。
+//
+// 和 `Publish` 的区别只有一件事：**包从哪来**。
+// 这里收文件、落盘、算哈希，再交给同一个 `Publish` ——
+// 所以「上传发的版」和「手填 URL 发的版」在库里长得一样。
+//
+// 表单字段：
+//
+//	game_id / version / channel / release_notes / forced / min_host_api / file
+//
+// `file` 只收 `.mjs` / `.js` / `.zip`（zip 里是 `<id>.plugin.mjs` + `assets/`）。
+// URL / SHA-256 / 体积由服务端算，**表单里给了也会被覆盖**。
+//
+// @Tags GameRelease[游戏分发]
+// @Summary 上传游戏包并发布（管理端）
+// @Accept multipart/form-data
+// @Produce json
+// @Security ApiKeyAuth
+// @Success 200 {object} ginx.Resp{data=entities.GameRelease}
+// @Router /api/admin/game/release/upload [post]
+func (c *GameReleaseAPI) Upload(ctx *gin.Context) {
+	var req entities.PublishReleaseReq
+	req.GameID = ctx.PostForm("game_id")
+	req.Version = ctx.PostForm("version")
+	req.Channel = ctx.PostForm("channel")
+	req.ReleaseNotes = ctx.PostForm("release_notes")
+	req.Forced = ctx.PostForm("forced") == "1" || ctx.PostForm("forced") == "true"
+	if v := ctx.PostForm("min_host_api"); v != "" {
+		var n int
+		if _, err := fmt.Sscanf(v, "%d", &n); err == nil {
+			req.MinHostApi = n
+		}
+	}
+	if strings.TrimSpace(req.GameID) == "" || strings.TrimSpace(req.Version) == "" {
+		ginx.RespErr(ctx, apperrors.WithCode(apperrors.InvalidParam))
+		return
+	}
+
+	fh, err := ctx.FormFile("file")
+	if err != nil {
+		ginx.RespErr(ctx, apperrors.WithCode(apperrors.InvalidParam))
+		return
+	}
+
+	rel, err := c.Srv.PublishFromUpload(ctx.Request.Context(), &req, fh, 0)
+	if err != nil {
+		ginx.RespErr(ctx, err)
+		return
+	}
+	ginx.RespSucc(ctx, rel)
+}
+
 // List 版本列表
 // @Tags GameRelease[游戏分发]
 // @Summary 版本列表（管理端）
@@ -193,6 +249,26 @@ func (c *GameReleaseAPI) Delete(ctx *gin.Context) {
 		return
 	}
 	ginx.RespSucc(ctx, gin.H{"deleted": true})
+}
+
+// SetActive 上架 / 下架一个版本（active=false 即下架）。
+//
+// 用 `*bool` 而不是 `bool`：`binding:"required"` 对 bool 的零值（false）
+// 判定为「没传」，于是**下架请求永远过不了校验** —— 传 false 反而被拒。
+func (c *GameReleaseAPI) SetActive(ctx *gin.Context) {
+	var req struct {
+		ReleaseID uint  `json:"release_id" binding:"required,min=1"`
+		Active    *bool `json:"active" binding:"required"`
+	}
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ginx.RespErr(ctx, err)
+		return
+	}
+	if err := c.Srv.SetActive(ctx.Request.Context(), req.ReleaseID, *req.Active); err != nil {
+		ginx.RespErr(ctx, err)
+		return
+	}
+	ginx.RespSucc(ctx, gin.H{"release_id": req.ReleaseID, "active": *req.Active})
 }
 
 // SelfCheck 自检签名密钥配置

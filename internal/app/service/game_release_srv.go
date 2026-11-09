@@ -186,6 +186,20 @@ func (s *GameReleaseService) Delete(ctx context.Context, releaseID uint) error {
 	return nil
 }
 
+// SetActive 上架 / 下架一个版本。
+//
+// ★ **必须失效目录缓存**：目录有 `CatalogCacheSeconds`（默认 300 秒）的缓存，
+// 不失效的话「下架」之后客户端最长还能装 5 分钟 —— 运营以为已经停了，
+// 用户那边还在往下拉，而且这时候包文件可能已经被清掉了（404）。
+// 这条不是优化，是「下架」这个动作本身能不能算数的问题。
+func (s *GameReleaseService) SetActive(ctx context.Context, releaseID uint, active bool) error {
+	if err := s.ReleaseRepo.SetActive(ctx, releaseID, active); err != nil {
+		return apperrors.WithError(err)
+	}
+	s.invalidateCatalog()
+	return nil
+}
+
 // ============================ 目录（catalog.json） ============================
 
 // BuildCatalog 构建 catalog.json 的内容（未签名）。

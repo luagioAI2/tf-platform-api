@@ -23,6 +23,15 @@ uploads/
 exports/
 *.log
 
+# 游戏包落盘目录：`/api/admin/game/release/upload` 把包写到这里，
+# 由 `/public` 静态路由托管。实测 301MB（24 款）⇒ 绝不入库。
+# 注意只忽略 games/，`public/.gitkeep` 还要留着占位。
+public/games/
+
+# Python 临时产物
+__pycache__/
+*.pyc
+
 # 构建/缓存
 release/
 dist/
