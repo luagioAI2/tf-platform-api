@@ -184,6 +184,9 @@ func (s *WishService) buildItemView(
 	view.Open = offer.IsOpen()
 	if view.Open {
 		view.VoucherPrice = offer.VoucherPrice
+		// 家长同意的时间（2026-11-12）：孩子端「兑换」列表按它倒序。
+		// 只在「现在真的开着」时给 —— 关掉的那件不该再靠时间排在前面。
+		view.OpenedAt = offer.OpenedAt
 	}
 	// 一次性标记跟着 offer 走（关闭之后仍然要返回 —— 孩子那一侧要据此
 	// 判断「这件东西是一次性的、已经换过了」，而不是「爸妈关掉了」）。
