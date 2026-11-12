@@ -46,6 +46,7 @@ type Router struct {
 	WishAPI         *api.WishAPI
 	GameReleaseAPI  *api.GameReleaseAPI
 	MerchantAPI     *api.MerchantAPI
+	CampaignAPI     *api.CampaignAPI
 	TemplateAPI     *api.TemplateAPI
 
 	// RDS 供中间件做黑名单/限流（可为 nil，表示降级运行）
@@ -306,6 +307,14 @@ func (a *Router) registerAPI(app *gin.Engine) {
 
 		// 兑换码
 		wishGroup.POST("/redeem-code", a.WishAPI.RedeemCode)
+	}
+
+	// ---- 主线活动（2026-11-12）----
+	// 领奖要**授游戏**，所以走登录态；进度由服务端现算（只收 step_id）。
+	campaignGroup := r.Group("/campaign").Use(middleware.JWTMiddleware(a.RDS))
+	{
+		campaignGroup.POST("/state", a.CampaignAPI.State)
+		campaignGroup.POST("/claim", a.CampaignAPI.Claim)
 	}
 
 	// ---- 游戏分发 ----

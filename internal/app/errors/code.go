@@ -165,6 +165,15 @@ const (
 	MerchantAdminURLRequired    = 10100301 // 通过时必须给后台地址
 )
 
+// ============================ 主线活动域 10 12 xx xx ============================
+//
+// ⚠️ 1010xx 是招商、1011xx 是农场状态（`FarmStateTooLarge` 那三条），
+//    所以活动用 1012xx。
+const (
+	CampaignStepNotExist = 10120101 // 没有这一关
+	CampaignNotReady     = 10120201 // 条件还没达成
+)
+
 // ============================ 文件域 10 03 xx xx ============================
 const (
 	FileNotAllowed     = 10030101 // 文件类型不允许
@@ -285,6 +294,9 @@ var ErrCodeMsg = map[int]string{
 	GamePackageTooLarge:  "game-package-too-large",
 	GameSHA256Invalid:    "game-sha256-invalid",
 	GameCatalogSignFail:  "game-catalog-sign-fail",
+
+	CampaignStepNotExist: "campaign-step-not-exist",
+	CampaignNotReady:     "campaign-not-ready",
 
 	MerchantApplicationNotExist: "merchant-application-not-exist",
 	MerchantAlreadyReviewed:     "merchant-already-reviewed",

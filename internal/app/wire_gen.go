@@ -153,6 +153,11 @@ func BuildInjector(info buildinfo.Info) (*Injector, func(), error) {
 	merchantAPI := &api.MerchantAPI{
 		Srv: merchantService,
 	}
+	// 主线活动：领奖要授游戏，服务端必须自己有一份关卡白名单
+	campaignService := service.ProvideCampaignService(gameRepository, db)
+	campaignAPI := &api.CampaignAPI{
+		Srv: campaignService,
+	}
 	templateRepository := &repository.TemplateRepository{
 		DB: db,
 	}
@@ -177,6 +182,7 @@ func BuildInjector(info buildinfo.Info) (*Injector, func(), error) {
 		WishAPI:         wishAPI,
 		GameReleaseAPI:  gameReleaseAPI,
 		MerchantAPI:     merchantAPI,
+		CampaignAPI:     campaignAPI,
 		TemplateAPI:     templateAPI,
 		RDS:             client,
 		Limiter:         rateLimiter,

@@ -66,6 +66,9 @@ func Models() []interface{} {
 
 		// 招商
 		new(entities.MerchantApplication),
+
+		// 主线活动（领取记录；关卡表是代码里的白名单，不入库）
+		new(entities.CampaignClaim),
 	}
 }
 
