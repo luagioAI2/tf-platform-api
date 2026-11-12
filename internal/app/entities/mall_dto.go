@@ -274,8 +274,17 @@ type WishCodeResp struct {
 	Code     string `json:"code"`
 	ItemID   string `json:"item_id"`
 	Unlocked bool   `json:"unlocked"`
-	GameID   string `json:"game_id,omitempty"`
-	Vouchers int64  `json:"vouchers,omitempty"`
+
+	// GameID 第一款（也是唯一一款，当码是「单款游戏卡」时）。
+	//
+	// ⚠️ 老客户端（≤1.1.5）只认这个字段。盲盒卡一次给 5 款时必须**仍然写第一款**，
+	// 否则老客户端会以为「码是真的、但什么也没解锁」，孩子打开游戏柜是空的。
+	GameID string `json:"game_id,omitempty"`
+
+	// GameIDs 这张码实际授了哪几款。盲盒卡是多款，游戏卡是 1 款。
+	GameIDs []string `json:"game_ids,omitempty"`
+
+	Vouchers int64 `json:"vouchers,omitempty"`
 }
 
 // ListWishOrderReq 查询心愿单

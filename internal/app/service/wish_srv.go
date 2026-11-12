@@ -1076,32 +1076,56 @@ func (s *WishService) RedeemCode(ctx context.Context, uid uint, req *entities.Wi
 			return apperrors.WithCode(apperrors.WishCodeExpired)
 		}
 
-		// ★ 先把「这张码解锁哪款游戏」查出来，**在烧码之前**判「是不是已经有了」。
+		// ★ 先把「这张码要授哪几款游戏」算出来，**在烧码之前**做完所有拒绝判断。
 		//
-		// 顺序反了就是这个结果：家长给孩子买了卡 → 孩子早就有了 →
+		// 顺序反了就是这个结果：家长给孩子买了卡 → 孩子早就有了（或盲盒池子不够）→
 		// 码被标记已用，而 `GrantGameWithTx` 是 `ON CONFLICT DO NOTHING`
 		// ⇒ 一个游戏没多出来，界面上却写着「兑换成功」。
 		// 这张卡就白买了，而且**没有任何地方会报错**，家长只会以为码没用上。
-		gameID := ""
+		//
+		// ★ 2026-11-12 起多一条路：**盲盒卡**。
+		//   线下卖的「盲盒 5 连」是一张卡换一次 5 连开 —— 孩子输一张码拿 5 款，
+		//   不是输 5 次。盲盒商品的 `game_id` 是空的（池子在 `pool` 里），
+		//   所以这里不能再只看 `it.GameID`：那样盲盒码会「核销成功但什么都不给」，
+		//   比报错更难查。
+		var item *entities.WishItem
 		if code.ItemID != "" {
 			it, err := s.Repo.GetItem(ctx, code.ItemID)
 			if err != nil {
 				return err
 			}
-			if it != nil {
-				gameID = it.GameID
-			}
+			item = it
 		}
-		if gameID != "" {
+
+		var picks []string // 这张码要授的游戏；空 = 券 / 实物卡（只记状态）
+		switch {
+		case item != nil && item.Kind == entities.WishKindBlindbox:
+			ownedSet, err := s.ownedGameSet(ctx, uid)
+			if err != nil {
+				return err
+			}
+			n := item.UnlockCount
+			if n < 1 {
+				n = 1
+			}
+			got := entities.PickBlindBoxMany(item.Pool, keysOf(ownedSet), n, randomFloat())
+			// ⚠️ 不足 n 款 ⇒ **整单拒绝、且不烧码**。卡上写的是「5 连」，
+			// 给 3 款就是缺斤少两；而码一旦烧掉，家长连「等新游戏再来」都做不到了。
+			if len(got) < n {
+				return apperrors.WithCode(apperrors.WishBlindBoxEmpty)
+			}
+			picks = got
+		case item != nil && item.GameID != "":
 			var owned int64
 			if err := tx.Model(&entities.UserGame{}).
-				Where("uid = ? AND game_id = ?", uid, gameID).
+				Where("uid = ? AND game_id = ?", uid, item.GameID).
 				Count(&owned).Error; err != nil {
 				return err
 			}
 			if owned > 0 {
 				return apperrors.WithCode(apperrors.GameAlreadyOwned)
 			}
+			picks = []string{item.GameID}
 		}
 
 		// CAS 标记已用（防并发重复使用）
@@ -1119,16 +1143,21 @@ func (s *WishService) RedeemCode(ctx context.Context, uid uint, req *entities.Wi
 			Unlocked: true,
 		}
 
-		if gameID != "" {
+		// 授游戏。`picks` 可能是 1 款（游戏卡）或 N 款（盲盒卡）。
+		// `resp.GameID` 仍然写第一款 —— 老客户端只认它，至少不会显示成「什么都没开出来」。
+		for _, gid := range picks {
 			grant := &entities.UserGame{
 				UID:    uid,
-				GameID: gameID,
+				GameID: gid,
 				Source: entities.GameOwnedByCode,
 			}
 			if err := s.GameRepo.GrantGameWithTx(tx, grant); err != nil {
 				return err
 			}
-			resp.GameID = gameID
+		}
+		if len(picks) > 0 {
+			resp.GameID = picks[0]
+			resp.GameIDs = picks
 		}
 		return nil
 	})
