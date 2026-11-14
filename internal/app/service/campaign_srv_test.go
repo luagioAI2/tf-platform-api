@@ -226,3 +226,136 @@ func TestCampaignUnknownStep(t *testing.T) {
 		t.Fatalf("错的错误码：%v", err)
 	}
 }
+
+/* ------------------------------------------------------------------ *
+ * 随机奖励（第 5 关，2026-11-14）
+ * ------------------------------------------------------------------ */
+
+// TestCampaignFirst50GrantsUnowned ★ 第 5 关送的是**一款用户还没有的游戏**，
+// 而且不能是前面几关明码送过的（否则孩子会觉得「又是这个」）。
+func TestCampaignFirst50GrantsUnowned(t *testing.T) {
+	svc, db := newCampaignTestDB(t)
+	ctx := context.Background()
+
+	setDoneTasks(t, db, 50)
+
+	/* ⚠️ 测试库是空库：先塞几款候选，否则 pickRandomGift 一个都挑不出来
+	   （它只认 `status=available` 的行）。这是**夹具**，不是被测逻辑。 */
+	seedTestGames(t, db, "anthill", "corgi", "melonjar", "minergirl")
+
+	// 先假装已经拥有几款，验证它不会挑这几个
+	for _, gid := range []string{"anthill", "corgi"} {
+		if err := svc.GameRepo.GrantGame(ctx, &entities.UserGame{
+			UID: campUID, GameID: gid, Source: entities.GameOwnedByGift,
+		}); err != nil {
+			t.Fatalf("预置拥有失败: %v", err)
+		}
+	}
+
+	resp, err := svc.Claim(ctx, campUID, "first50")
+	if err != nil {
+		t.Fatalf("领取失败: %v", err)
+	}
+	if resp.GameID == "" {
+		// 这一条最要命：game_id 是空的，客户端不知道装哪款
+		t.Fatalf("随机关没返回 game_id")
+	}
+	if resp.GameID == "anthill" || resp.GameID == "corgi" {
+		t.Fatalf("挑了已经拥有的 %s", resp.GameID)
+	}
+	// 不能是前面几关明码送过的
+	fixed := map[string]bool{"fall2048": true, "cloudfarm": true, "screamchick": true, "hoopsneak": true,
+		"blockfit": true, "prizepark": true, "claw3d": true}
+	if fixed[resp.GameID] {
+		t.Fatalf("挑了主线明码送过的 %s —— 孩子会觉得「又是这个」", resp.GameID)
+	}
+	if !ownedByServer(t, db, resp.GameID) {
+		t.Fatalf("返回了 %s 但没有真的授下去", resp.GameID)
+	}
+}
+
+// TestCampaignFirst50NoGiftLeft ★ 没有可送的时必须**报错**，不能假装成功。
+func TestCampaignFirst50NoGiftLeft(t *testing.T) {
+	svc, db := newCampaignTestDB(t)
+	ctx := context.Background()
+
+	setDoneTasks(t, db, 50)
+
+	seedTestGames(t, db, "anthill", "corgi", "melonjar")
+
+	// 把全部 available 游戏都塞给用户（含随包那批）
+	var games []entities.Game
+	if err := db.Where("status = ?", entities.GameStatusAvailable).Find(&games).Error; err != nil {
+		t.Fatalf("读游戏失败: %v", err)
+	}
+	for _, g := range games {
+		if err := svc.GameRepo.GrantGame(ctx, &entities.UserGame{
+			UID: campUID, GameID: g.GameID, Source: entities.GameOwnedByGift,
+		}); err != nil {
+			t.Fatalf("预置拥有失败: %v", err)
+		}
+	}
+
+	if _, err := svc.Claim(ctx, campUID, "first50"); err == nil {
+		/* 不报错的话界面会显示「领取成功」而游戏柜没有变化 ——
+		   这套功能里最坏的一种失败。 */
+		t.Fatalf("全都拥有了还返回成功 —— 会造成「领了但没东西」")
+	}
+}
+
+// TestCampaignCoupon100GrantsCloudfarm ★ 第 2 关按用户要求送云边小农场。
+func TestCampaignCoupon100GrantsCloudfarm(t *testing.T) {
+	svc, db := newCampaignTestDB(t)
+	ctx := context.Background()
+
+	earnCoupons(t, db, 100, "farm_harvest")
+
+	resp, err := svc.Claim(ctx, campUID, "coupon100")
+	if err != nil {
+		t.Fatalf("领取失败: %v", err)
+	}
+	if resp.GameID != "cloudfarm" {
+		t.Fatalf("第 2 关应该送 cloudfarm，实际 %s", resp.GameID)
+	}
+	if !ownedByServer(t, db, "cloudfarm") {
+		t.Fatalf("没授下去")
+	}
+}
+
+// TestCampaignStepTableMatchesClient ★ 8 关，且 id 与客户端那份一字不差。
+func TestCampaignStepTableMatchesClient(t *testing.T) {
+	want := []string{"first5", "coupon100", "first15", "coupon300", "first50", "coupon600", "first100", "coupon1000"}
+	got := entities.CampaignSteps()
+	if len(got) != len(want) {
+		t.Fatalf("关卡数 %d，期望 %d", len(got), len(want))
+	}
+	for i, id := range want {
+		if got[i].StepID != id {
+			t.Fatalf("第 %d 关 id 是 %s，期望 %s（改 id 等于作废老玩家的领取记录）", i+1, got[i].StepID, id)
+		}
+	}
+}
+
+/* ------------------------------------------------------------------ *
+ * 测试夹具
+ * ------------------------------------------------------------------ */
+
+// seedTestGames 往空测试库里塞几款 available 游戏（无 package，只用来挑）。
+func seedTestGames(t *testing.T, db *gorm.DB, ids ...string) {
+	t.Helper()
+	for _, id := range ids {
+		row := &entities.Game{
+			GameID:      id,
+			Name:        id,
+			Status:      entities.GameStatusAvailable,
+			Sort:        0,
+			EntryURL:    "",
+			CoverURL:    "",
+			AgeHint:     "",
+			SessionHint: "",
+		}
+		if err := db.Create(row).Error; err != nil {
+			t.Fatalf("造游戏 %s: %v", id, err)
+		}
+	}
+}

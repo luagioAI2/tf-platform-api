@@ -30,7 +30,11 @@ var Games = []*entities.Game{
 		Status:       entities.GameStatusAvailable,
 		PricePoints:  0,
 		PriceDiamond: 0,
-		DefaultOwned: true,
+		/* ★ 2026-11-14：改成 false。用户要求主线第 2 关（攒够 100 张券）
+		   送云边小农场；而 `default_owned=1` 会让 `EnsureUserGames` 在登录时
+		   直接塞进 `user_game` ⇒ 那一关对所有人是白送，领了什么都不多。
+		   已有的 `user_game` 记录**不回收**：老用户照旧拥有，新用户才靠这一关解锁。 */
+		DefaultOwned: false,
 		AgeHint:      "6 岁以上",
 		SessionHint:  "一次 5~10 分钟",
 		Learn: entities.JSONStringArray{

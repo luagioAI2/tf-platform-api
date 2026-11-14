@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"math/big"
 
 	"tf-api/internal/app/entities"
 	apperrors "tf-api/internal/app/errors"
@@ -163,19 +165,30 @@ func (s *CampaignService) Claim(ctx context.Context, uid uint, stepID string) (*
 		return nil, apperrors.WithCode(apperrors.CampaignNotReady)
 	}
 
+	/* ★ 随机奖励（用户 2026-11-14 第 5 关）：现在现挑一款。
+	   必须在**事务之前**挑好 —— 挑的过程中要读 `user_game`，
+	   放在事务里读会让「挑哪款」依赖事务内的可见性，容易挑到刚授的那款。 */
+	giftID := def.GameID
+	if def.RandomGift {
+		giftID, err = s.pickRandomGift(ctx, uid)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// ③ 事务：记录 + 授游戏。两件事必须一起成，否则「记录有了、游戏没授」
 	err = s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&entities.CampaignClaim{
 			UID:    uid,
 			StepID: stepID,
-			GameID: def.GameID,
+			GameID: giftID,
 		}).Error; err != nil {
 			// 并发重复点：唯一索引会拦下来。此时当作「已领」返回，不算失败。
 			return err
 		}
 		return s.GameRepo.GrantGameWithTx(tx, &entities.UserGame{
 			UID:    uid,
-			GameID: def.GameID,
+			GameID: giftID,
 			Source: entities.GameOwnedByGift,
 		})
 	})
@@ -194,5 +207,68 @@ func (s *CampaignService) Claim(ctx context.Context, uid uint, stepID string) (*
 		return nil, apperrors.WithError(err)
 	}
 
-	return &entities.CampaignClaimResp{StepID: stepID, GameID: def.GameID}, nil
+	return &entities.CampaignClaimResp{StepID: stepID, GameID: giftID}, nil
+}
+
+/* ------------------------------------------------------------------ *
+ * 随机奖励（第 5 关，2026-11-14）
+ * ------------------------------------------------------------------ */
+
+// errCampaignNoGiftLeft 随机奖励没有可送的了（全都拥有 / 全被明码送过）。
+//
+// ⚠️ 必须报错而不是「随便送一款已有的」—— 后者会让界面显示领取成功
+//
+//	而游戏柜没有变化，是这套功能里最坏的一种失败。
+var errCampaignNoGiftLeft = apperrors.With("你已经把能送的游戏都拿到了，这一关先留着")
+
+// pickRandomGift 挑一款这个用户还没有的游戏。
+//
+// 候选 = available 且非 default_owned 且未拥有 且**没被主线明码送过**。
+// 排除「明码送过的」是因为第 5 关抽到第 1 关刚送的那款，孩子会觉得被耍了。
+func (s *CampaignService) pickRandomGift(ctx context.Context, uid uint) (string, error) {
+	all, _, err := s.GameRepo.ListGames(ctx, &entities.GameListReq{})
+	if err != nil {
+		return "", apperrors.WithError(err)
+	}
+
+	// 已拥有
+	owned := map[string]bool{}
+	var ugs []entities.UserGame
+	if err := s.DB.WithContext(ctx).Where("uid = ?", uid).Find(&ugs).Error; err != nil {
+		return "", apperrors.WithError(err)
+	}
+	for _, g := range ugs {
+		owned[g.GameID] = true
+	}
+
+	// 主线明码送过的（随机关自己不算）
+	fixed := map[string]bool{}
+	for _, st := range entities.CampaignSteps() {
+		if !st.RandomGift && st.GameID != "" {
+			fixed[st.GameID] = true
+		}
+	}
+
+	cands := make([]string, 0, len(all))
+	for _, g := range all {
+		if g.Status != entities.GameStatusAvailable {
+			continue
+		}
+		if g.DefaultOwned || owned[g.GameID] || fixed[g.GameID] {
+			continue
+		}
+		cands = append(cands, g.GameID)
+	}
+	if len(cands) == 0 {
+		return "", errCampaignNoGiftLeft
+	}
+
+	// 随机：用 crypto/rand 取模会有偏，但这里只是给孩子抽个玩具，
+	// 不是安全场景 —— math/rand 足够，且要的是可重放性 / 简单。
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(len(cands))))
+	if err != nil {
+		// 拿不到随机源就退到第一个：宁可确定性，也不能让领奖卡住
+		return cands[0], nil
+	}
+	return cands[n.Int64()], nil
 }

@@ -45,19 +45,31 @@ type CampaignStep struct {
 	Target   int64
 	GameID   string
 	GameName string // 只用于出错时的人话提示，不参与判定
+	// RandomGift 为 true 时 **GameID 不参与判定**：领奖那一刻现挑一款
+	// 用户还没拥有的 available 游戏（见 service 的 pickRandomGift）。
+	// 对应用户 2026-11-14：「第5关 完成 50个任务 奖励随机一个没拥有的游戏。」
+	RandomGift bool
 }
 
 // campaignSteps 主线关卡白名单。
 //
-// ⚠️ **奖励不能选默认免费的游戏**（现在 `cloudfarm` 云边小农场是 `default_owned=1`）。
+// ⚠️ **奖励不能选默认免费的游戏** —— 那样这一关「一开局就能领、领完什么都不多」。
 //
-//	用户举例时正好举了它 —— 照抄会做出一关「一开局就能领、领完什么都不多」。
-//	所以「券满 100」那一关送的是「收租公寓」。
+//	2026-11-14 用户明确要求第 2 关送「云边小农场」，而它原本是 `default_owned=1`。
+//	所以同一批改动里把 seed 的 `DefaultOwned` 改成 false（并 UPDATE 线上库）。
+//	**已有的 `user_game` 记录不回收** ⇒ 老用户不受影响，新用户才靠这一关解锁。
 var campaignSteps = []CampaignStep{
 	{StepID: "first5", Metric: CampaignMetricTaskDone, Target: 5, GameID: "fall2048", GameName: "下落的2048"},
-	{StepID: "coupon100", Metric: CampaignMetricCouponEarned, Target: 100, GameID: "renttower", GameName: "收租公寓"},
-	{StepID: "first15", Metric: CampaignMetricTaskDone, Target: 15, GameID: "blockfit", GameName: "方块填空"},
+	// ★ 用户 2026-11-14 指定送云边小农场。它原来是 default_owned=1（登录即拥有），
+	//   所以同一批改动里把 seed 的 DefaultOwned 改成 false —— 否则这一关是白送。
+	{StepID: "coupon100", Metric: CampaignMetricCouponEarned, Target: 100, GameID: "cloudfarm", GameName: "云边小农场"},
+	{StepID: "first15", Metric: CampaignMetricTaskDone, Target: 15, GameID: "screamchick", GameName: "尖叫鸡"},
 	{StepID: "coupon300", Metric: CampaignMetricCouponEarned, Target: 300, GameID: "hoopsneak", GameName: "偷偷投篮"},
+	// 第 5 关：随机一款未拥有。GameID 只是兜底文案，真正的游戏由 pickRandomGift 现挑。
+	{StepID: "first50", Metric: CampaignMetricTaskDone, Target: 50, GameID: "", GameName: "随机一款你还没有的", RandomGift: true},
+	{StepID: "coupon600", Metric: CampaignMetricCouponEarned, Target: 600, GameID: "blockfit", GameName: "方块填空"},
+	{StepID: "first100", Metric: CampaignMetricTaskDone, Target: 100, GameID: "prizepark", GameName: "抓奖乐园"},
+	{StepID: "coupon1000", Metric: CampaignMetricCouponEarned, Target: 1000, GameID: "claw3d", GameName: "抓娃娃"},
 }
 
 // CampaignStepByID 按 id 取一关（找不到返回 nil）
